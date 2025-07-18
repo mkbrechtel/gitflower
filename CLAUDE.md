@@ -39,6 +39,13 @@ codeflow/
 
 ## Development Workflow
 
+**IMPORTANT**: When implementing a feature, go through this workflow step-by-step and inform the user which step you are currently working on. This ensures transparency and allows the user to guide the process.
+
+### 0. Feature Specification
+- Check if a feature specification exists in `pm/<feature-name>.feature.md`
+- Read and understand all requirements, goals, and acceptance criteria
+- If no spec exists, work with the user to define requirements first
+
 ### 1. Implementation Planning
 - Read the feature specification in `pm/<feature-name>.feature.md`
 - Propose a detailed implementation spec to the user
@@ -67,7 +74,13 @@ codeflow/
 - Verify the feature works as intended
 - Make another commit for the completed feature
 
-### 6. Feature Review & Merge
+### 6. Documentation
+- Write user-facing documentation in `docs/` directory
+- Document all new features, commands, and workflows
+- Include examples and troubleshooting sections
+- Use clear, concise language with practical examples
+
+### 7. Feature Review & Merge
 - Present the complete feature branch to the user
 - Demonstrate all implemented functionality
 - Help user perform acceptance testing
