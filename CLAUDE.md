@@ -37,7 +37,7 @@ codeflow/
   - `go doc -all ./git` - View all documentation for a package
   - `go doc github.com/go-git/go-git/v6` - View external package documentation
 
-## Development Workflow
+## Feature Development Workflow
 
 **IMPORTANT**: When implementing a feature, go through this workflow step-by-step and inform the user which step you are currently working on. This ensures transparency and allows the user to guide the process.
 
@@ -45,6 +45,8 @@ codeflow/
 - Check if a feature specification exists in `pm/<feature-name>.feature.md`
 - Read and understand all requirements, goals, and acceptance criteria
 - If no spec exists, work with the user to define requirements first
+- Get user approval on the feature specification before proceeding to Step 1
+- After approval, commit the feature specification to version control
 
 ### 1. Implementation Planning
 - Read the feature specification in `pm/<feature-name>.feature.md`
@@ -75,10 +77,12 @@ codeflow/
 - Make another commit for the completed feature
 
 ### 6. Documentation
-- Write user-facing documentation in `docs/` directory
+- Move the feature specification from `pm/` to `docs/` directory
+- Rewrite the feature specification as user-facing documentation
+- Transform acceptance criteria into usage examples
 - Document all new features, commands, and workflows
-- Include examples and troubleshooting sections
-- Use clear, concise language with practical examples
+- Include practical examples and troubleshooting sections
+- Use clear, concise language focused on how to use the feature
 
 ### 7. Feature Review & Merge
 - Present the complete feature branch to the user
@@ -117,8 +121,9 @@ Project management is done in the `pm/` directory with markdown files.
 - **Go 1.24.2** - Primary programming language
 - **go-git/v6** - Pure Go implementation for Git operations
 - **net/http** - Built-in Go HTTP server (no external framework needed)
-- **html/template** - Go's standard template engine
+- **html/template** - Go's standard template engine with go:embed
 - **Tailwind CSS** - Utility-first CSS framework (standalone CLI)
+- **Templates** - Always use go:embed for templates in production code
 
 ### Build System
 - **Make** - Build automation with targets for:
