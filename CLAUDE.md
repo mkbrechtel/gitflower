@@ -122,7 +122,7 @@ Project management is done in the `pm/` directory with markdown files.
 - No JavaScript framework - server-side rendering only
 
 ### Development Commands
-- `go run cmd/codeflow/main.go web` - Run the web server
+- `go run main.go web` - Run the web server
 - `bin/codeflow web -addr :8080` - Run web server with compiled binary
 - `make server` - Run development server with auto-built CSS
 - `make build` - Build the codeflow binary

@@ -27,10 +27,10 @@ tailwind-watch: bin/tailwindcss
 
 # Run the web server
 server: web/static/css/style.css
-	go run cmd/codeflow/main.go web
+	go run main.go web
 
 # Build all binaries
-bin/codeflow: cmd/codeflow/main.go web/static/css/style.css
+bin/codeflow: main.go web/static/css/style.css
 	mkdir -p bin
 	go build -o $@ $<
 
