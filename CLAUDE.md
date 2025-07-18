@@ -28,6 +28,15 @@ codeflow/
 └── pm/       # Project management docs
 ```
 
+## Development Tools
+
+### Go Documentation
+- Use `go doc` to view documentation for Go packages and functions
+- Examples:
+  - `go doc fmt.Printf` - View documentation for a specific function
+  - `go doc -all ./git` - View all documentation for a package
+  - `go doc github.com/go-git/go-git/v6` - View external package documentation
+
 ## Development Workflow
 
 ### 1. Implementation Planning
@@ -88,3 +97,32 @@ codeflow/
 ## Project Management
 
 Project management is done in the `pm/` directory with markdown files.
+
+## Technology Stack
+
+### Core Technologies
+- **Go 1.24.2** - Primary programming language
+- **go-git/v6** - Pure Go implementation for Git operations
+- **net/http** - Built-in Go HTTP server (no external framework needed)
+- **html/template** - Go's standard template engine
+- **Tailwind CSS** - Utility-first CSS framework (standalone CLI)
+
+### Build System
+- **Make** - Build automation with targets for:
+  - `make tailwind` - Build CSS
+  - `make tailwind-watch` - Watch mode for CSS development
+  - `make server` - Run the development server
+  - `make build` - Build all binaries
+  - `make clean` - Clean build artifacts
+
+### Project Dependencies
+- Minimal external dependencies by design
+- go-git for all Git operations
+- No database - Git is the source of truth
+- No JavaScript framework - server-side rendering only
+
+### Development Commands
+- `go run cmd/codeflow/main.go web` - Run the web server
+- `bin/codeflow web -addr :8080` - Run web server with compiled binary
+- `make server` - Run development server with auto-built CSS
+- `make build` - Build the codeflow binary
