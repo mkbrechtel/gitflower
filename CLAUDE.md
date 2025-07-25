@@ -1,10 +1,10 @@
-# CodeFlow Development Guidelines
+# GitFlower Development Guidelines
 
-This document provides instructions for AI assistants and developers working on the CodeFlow project.
+This document provides instructions for AI assistants and developers working on the GitFlower project.
 
 ## Project Overview
 
-CodeFlow is a lean, local Git development server that provides:
+GitFlower is a lean, local Git development server that provides:
 - Read-only web interface for repository visualization
 - Stacked merge request workflows
 - Local-first, privacy-focused design
@@ -20,7 +20,7 @@ CodeFlow is a lean, local Git development server that provides:
 ## Project Structure
 
 ```
-codeflow/
+gitflower/
 ├── cli/      # Command-line interface
 ├── web/      # Web server and UI
 ├── git/      # Git operations library
@@ -141,6 +141,6 @@ Project management is done in the `pm/` directory with markdown files.
 
 ### Development Commands
 - `go run main.go web` - Run the web server
-- `bin/codeflow web -addr :8080` - Run web server with compiled binary
+- `bin/gitflower web -addr :8080` - Run web server with compiled binary
 - `make server` - Run development server with auto-built CSS
-- `make build` - Build the codeflow binary
+- `make build` - Build the gitflower binary

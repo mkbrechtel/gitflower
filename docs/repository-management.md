@@ -1,6 +1,6 @@
 # Repository Management
 
-CodeFlow provides simple and secure local Git repository management through command-line tools.
+GitFlower provides simple and secure local Git repository management through command-line tools.
 
 ## Overview
 
@@ -18,10 +18,10 @@ By default, repositories are stored in `./repos/`. You can change this:
 
 ```bash
 # View current repository directory
-codeflow config reposDirectory
+gitflower config reposDirectory
 
 # Set a new repository directory
-codeflow config reposDirectory ~/my-git-repos
+gitflower config reposDirectory ~/my-git-repos
 ```
 
 ## Creating Repositories
@@ -30,11 +30,11 @@ Use the `create` command to initialize new bare repositories:
 
 ```bash
 # Create a simple repository
-codeflow create my-project.git
+gitflower create my-project.git
 
 # Create repository in an organization folder
-codeflow create work/backend-api.git
-codeflow create personal/dotfiles.git
+gitflower create work/backend-api.git
+gitflower create personal/dotfiles.git
 ```
 
 ### Naming Rules
@@ -57,7 +57,7 @@ Invalid names (will be rejected):
 The `list` command shows all repositories with metadata:
 
 ```bash
-codeflow list
+gitflower list
 ```
 
 Output includes:
@@ -130,7 +130,7 @@ git remote add origin ~/my-repos/work/backend-api.git
 
 ### "Invalid directory name" warnings
 
-If you see warnings about invalid directory names when listing repositories, it means you have directories that don't follow CodeFlow's naming conventions. These directories are ignored but you should rename or remove them.
+If you see warnings about invalid directory names when listing repositories, it means you have directories that don't follow GitFlower's naming conventions. These directories are ignored but you should rename or remove them.
 
 ### Repository not showing up
 

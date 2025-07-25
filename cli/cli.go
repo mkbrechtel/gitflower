@@ -42,7 +42,7 @@ func Execute() {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: codeflow <command> [arguments]\n\n")
+	fmt.Fprintf(os.Stderr, "Usage: gitflower <command> [arguments]\n\n")
 	fmt.Fprintf(os.Stderr, "Available commands:\n")
 	for name, cmd := range commands {
 		fmt.Fprintf(os.Stderr, "  %-10s %s\n", name, cmd.Description)

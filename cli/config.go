@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"codeflow/cfg"
+	"gitflower/cfg"
 )
 
 func init() {
@@ -19,13 +19,13 @@ func init() {
 func executeConfig(args []string) error {
 	fs := flag.NewFlagSet("config", flag.ExitOnError)
 	fs.Usage = func() {
-		fmt.Println("Usage: codeflow config <key> [value]")
+		fmt.Println("Usage: gitflower config <key> [value]")
 		fmt.Println("\nGet or set configuration values.")
 		fmt.Println("\nAvailable keys:")
 		fmt.Println("  reposDirectory    Directory containing repositories (default: ./repos/)")
 		fmt.Println("\nExamples:")
-		fmt.Println("  codeflow config reposDirectory           # Get current value")
-		fmt.Println("  codeflow config reposDirectory ~/repos   # Set new value")
+		fmt.Println("  gitflower config reposDirectory           # Get current value")
+		fmt.Println("  gitflower config reposDirectory ~/repos   # Set new value")
 	}
 
 	if err := fs.Parse(args); err != nil {

@@ -30,11 +30,11 @@ server: web/static/css/style.css
 	go run main.go web
 
 # Build all binaries
-bin/codeflow: main.go web/static/css/style.css
+bin/gitflower: main.go web/static/css/style.css
 	mkdir -p bin
 	go build -o $@ $<
 
-build: bin/codeflow
+build: bin/gitflower
 
 # Clean build artifacts
 clean:

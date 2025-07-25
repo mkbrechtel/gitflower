@@ -21,9 +21,9 @@ var (
 func init() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		configPath = ".codeflow/config.json"
+		configPath = ".gitflower/config.json"
 	} else {
-		configPath = filepath.Join(homeDir, ".config", "codeflow", "config.json")
+		configPath = filepath.Join(homeDir, ".config", "gitflower", "config.json")
 	}
 }
 

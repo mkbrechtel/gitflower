@@ -1,4 +1,4 @@
-module codeflow
+module gitflower
 
 go 1.24.2
 

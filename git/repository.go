@@ -11,7 +11,7 @@ import (
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/storage/filesystem"
 
-	"codeflow/cfg"
+	"gitflower/cfg"
 )
 
 type Repository struct {
@@ -200,7 +200,7 @@ func (s *Scanner) countMergeRequests(repo *git.Repository) (int, error) {
 
 	count := 0
 	iter.ForEach(func(ref *plumbing.Reference) error {
-		if strings.HasPrefix(ref.Name().String(), "refs/codeflow/merge-requests/") {
+		if strings.HasPrefix(ref.Name().String(), "refs/gitflower/merge-requests/") {
 			count++
 		}
 		return nil

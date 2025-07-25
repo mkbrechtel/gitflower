@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-git/go-git/v6"
 
-	"codeflow/cfg"
+	"gitflower/cfg"
 )
 
 func TestCreateRepository(t *testing.T) {

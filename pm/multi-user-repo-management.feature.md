@@ -11,7 +11,7 @@ Enable multiple users on a Linux system to share bare Git repositories with prop
 
 ## User Stories
 
-1. As a system administrator, I want to install a global CodeFlow instance that multiple users can use
+1. As a system administrator, I want to install a global GitFlower instance that multiple users can use
 2. As a user, I want to access shared repositories based on my group membership
 3. As a user, I want my private repositories to remain inaccessible to other users
 4. As an administrator, I want to manage repository access through standard POSIX groups

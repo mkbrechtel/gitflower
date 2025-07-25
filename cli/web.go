@@ -4,13 +4,13 @@ import (
 	"flag"
 	"log"
 
-	"codeflow/web"
+	"gitflower/web"
 )
 
 func init() {
 	Register(&Command{
 		Name:        "web",
-		Description: "Start the CodeFlow web server",
+		Description: "Start the GitFlower web server",
 		Run:         runWeb,
 	})
 }
@@ -28,6 +28,6 @@ func runWeb(args []string) error {
 		return err
 	}
 
-	log.Printf("Starting CodeFlow web server on %s", *addr)
+	log.Printf("Starting GitFlower web server on %s", *addr)
 	return server.Start(*addr)
 }

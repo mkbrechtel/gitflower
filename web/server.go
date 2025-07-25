@@ -52,6 +52,6 @@ func (s *Server) Start(addr string) error {
 	// Routes
 	mux.HandleFunc("/", s.HandleIndex)
 
-	log.Printf("Starting CodeFlow server on %s", addr)
+	log.Printf("Starting GitFlower server on %s", addr)
 	return http.ListenAndServe(addr, mux)
 }

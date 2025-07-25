@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"codeflow/cfg"
-	"codeflow/git"
+	"gitflower/cfg"
+	"gitflower/git"
 )
 
 func init() {
@@ -20,13 +20,13 @@ func init() {
 func executeCreate(args []string) error {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	fs.Usage = func() {
-		fmt.Println("Usage: codeflow create <name>")
+		fmt.Println("Usage: gitflower create <name>")
 		fmt.Println("\nCreate a new bare repository in the configured repos directory.")
 		fmt.Println("\nArguments:")
 		fmt.Println("  name    Repository name (must end with .git)")
 		fmt.Println("\nExamples:")
-		fmt.Println("  codeflow create my-project.git")
-		fmt.Println("  codeflow create work/backend-api.git")
+		fmt.Println("  gitflower create my-project.git")
+		fmt.Println("  gitflower create work/backend-api.git")
 	}
 
 	if err := fs.Parse(args); err != nil {

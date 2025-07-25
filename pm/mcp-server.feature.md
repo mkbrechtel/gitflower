@@ -8,7 +8,7 @@ Implement a Model Context Protocol (MCP) server that exposes Git repository info
 - Enable context-aware assistance for developers
 - Support efficient querying of large repositories
 - Configure agents with different permission levels (read-only vs read-write)
-- Provide instructional prompts to guide LLMs in using CodeFlow effectively
+- Provide instructional prompts to guide LLMs in using GitFlower effectively
 - Integrate seamlessly with AI development tools
 
 ## User Stories
@@ -20,7 +20,7 @@ Implement a Model Context Protocol (MCP) server that exposes Git repository info
 5. As a developer, I want my AI assistant to have context about my current work and suggest appropriate Git commands
 6. As an AI agent with write permissions, I want to create branches, commits, and merge requests programmatically
 7. As a developer, I want to configure which agents have read-only vs read-write access
-8. As an AI agent, I want to access prompts that teach me how to use CodeFlow effectively
+8. As an AI agent, I want to access prompts that teach me how to use GitFlower effectively
 9. As an AI agent, I want efficient, structured access to repository data with proper error handling
 
 ## Acceptance Criteria
@@ -57,10 +57,10 @@ Implement a Model Context Protocol (MCP) server that exposes Git repository info
 - [ ] `mr_update` - Update MR metadata
 
 ### MCP Prompts Implementation
-- [ ] `codeflow_overview` - How to use CodeFlow system
+- [ ] `gitflower_overview` - How to use GitFlower system
 - [ ] `repository_navigation` - How to explore repositories
 - [ ] `mr_workflow` - How to work with merge requests
 - [ ] `stacked_mrs` - Understanding stacked MRs
 - [ ] `code_review` - How to review code effectively
-- [ ] `git_commands` - Common Git operations in CodeFlow
-- [ ] `best_practices` - CodeFlow development best practices
+- [ ] `git_commands` - Common Git operations in GitFlower
+- [ ] `best_practices` - GitFlower development best practices

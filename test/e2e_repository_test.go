@@ -16,11 +16,11 @@ func TestE2ERepositoryManagement(t *testing.T) {
 		t.Skip("Skipping E2E test in short mode")
 	}
 
-	// Build the codeflow binary
-	buildCmd := exec.Command("go", "build", "-o", "../bin/codeflow", "..")
+	// Build the gitflower binary
+	buildCmd := exec.Command("go", "build", "-o", "../bin/gitflower", "..")
 	buildCmd.Dir = filepath.Dir(getBinaryPath())
 	if err := buildCmd.Run(); err != nil {
-		t.Fatalf("Failed to build codeflow: %v", err)
+		t.Fatalf("Failed to build gitflower: %v", err)
 	}
 
 	// Create temp directory for test repos
@@ -29,7 +29,7 @@ func TestE2ERepositoryManagement(t *testing.T) {
 	// Set up environment
 	env := append(os.Environ(), fmt.Sprintf("HOME=%s", tempDir))
 
-	// Helper to run codeflow commands
+	// Helper to run gitflower commands
 	runCodeflow := func(args ...string) (string, error) {
 		cmd := exec.Command(getBinaryPath(), args...)
 		cmd.Env = env
@@ -292,5 +292,5 @@ func TestE2ERepositoryManagement(t *testing.T) {
 }
 
 func getBinaryPath() string {
-	return filepath.Join("..", "bin", "codeflow")
+	return filepath.Join("..", "bin", "gitflower")
 }

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"codeflow/cli"
+	"gitflower/cli"
 )
 
 func main() {

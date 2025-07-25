@@ -1,7 +1,7 @@
 # Feature: Web Server Foundation
 
 ## Overview
-Enhance the existing web server to provide a solid foundation for CodeFlow's web interface, supporting repository browsing, code review, and documentation features.
+Enhance the existing web server to provide a solid foundation for GitFlower's web interface, supporting repository browsing, code review, and documentation features.
 
 ## Goals
 - Provide a robust HTTP server with proper routing

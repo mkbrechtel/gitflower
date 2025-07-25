@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"codeflow/cfg"
-	"codeflow/git"
+	"gitflower/cfg"
+	"gitflower/git"
 )
 
 func init() {
@@ -20,7 +20,7 @@ func init() {
 func executeList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	fs.Usage = func() {
-		fmt.Println("Usage: codeflow list")
+		fmt.Println("Usage: gitflower list")
 		fmt.Println("\nList all repositories in the configured repos directory.")
 	}
 

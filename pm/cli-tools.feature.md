@@ -1,10 +1,10 @@
 # Feature: CLI Tools
 
 ## Overview
-Provide a comprehensive command-line interface for managing CodeFlow repositories, creating merge requests, configuring the server, and integrating with existing Git workflows.
+Provide a comprehensive command-line interface for managing GitFlower repositories, creating merge requests, configuring the server, and integrating with existing Git workflows.
 
 ## Goals
-- Enable all CodeFlow operations from the command line
+- Enable all GitFlower operations from the command line
 - Integrate seamlessly with existing Git workflows
 - Provide clear, helpful command output
 - Support automation and scripting
@@ -13,9 +13,9 @@ Provide a comprehensive command-line interface for managing CodeFlow repositorie
 ## User Stories
 
 1. As a user, I want to start the web server or MCP server from the command line
-2. As a user, I want to initialize and manage CodeFlow repositories from the command line
+2. As a user, I want to initialize and manage GitFlower repositories from the command line
 3. As a user, I want to create, list, update, and visualize merge requests and their stacks via CLI
-4. As a user, I want to install and manage Git hooks that integrate with CodeFlow
+4. As a user, I want to install and manage Git hooks that integrate with GitFlower
 5. As a user, I want the CLI to generate helpful Git commands for common workflows
 6. As a user, I want consistent, well-documented commands with helpful output and error messages
 7. As a user, I want to export data in different formats (JSON, patches) for integration with other tools
@@ -23,37 +23,37 @@ Provide a comprehensive command-line interface for managing CodeFlow repositorie
 ## Acceptance Criteria
 
 ### Command Structure
-- [ ] Main command: `codeflow` or `cf` alias
+- [ ] Main command: `gitflower` or `gf` alias
 - [ ] Subcommands follow noun-verb pattern
 - [ ] Consistent flag naming
 - [ ] Help text for all commands
 - [ ] Examples in help output
 
 ### Repository Commands
-- [ ] `codeflow init [path]` - Initialize repository
-- [ ] `codeflow repo list` - List repositories
-- [ ] `codeflow repo add <path>` - Add existing repo
-- [ ] `codeflow repo info` - Show repo details
-- [ ] `codeflow repo config` - Manage settings
+- [ ] `gitflower init [path]` - Initialize repository
+- [ ] `gitflower repo list` - List repositories
+- [ ] `gitflower repo add <path>` - Add existing repo
+- [ ] `gitflower repo info` - Show repo details
+- [ ] `gitflower repo config` - Manage settings
 
 ### MR Commands
-- [ ] `codeflow mr create` - Create new MR
-- [ ] `codeflow mr list` - List MRs
-- [ ] `codeflow mr show <id>` - Show MR details
-- [ ] `codeflow mr stack` - Show stack visualization
-- [ ] `codeflow mr update <id>` - Update MR
-- [ ] `codeflow mr rebase <id>` - Generate rebase commands
+- [ ] `gitflower mr create` - Create new MR
+- [ ] `gitflower mr list` - List MRs
+- [ ] `gitflower mr show <id>` - Show MR details
+- [ ] `gitflower mr stack` - Show stack visualization
+- [ ] `gitflower mr update <id>` - Update MR
+- [ ] `gitflower mr rebase <id>` - Generate rebase commands
 
 ### Server Commands
-- [ ] `codeflow web` - Start web server
-- [ ] `codeflow mcp` - Start MCP server (CLI-only)
-- [ ] `codeflow mcp --read-only` - Start MCP server in read-only mode
+- [ ] `gitflower web` - Start web server
+- [ ] `gitflower mcp` - Start MCP server (CLI-only)
+- [ ] `gitflower mcp --read-only` - Start MCP server in read-only mode
 
 ### Hook Commands
-- [ ] `codeflow hook install` - Install Git hooks
-- [ ] `codeflow hook remove` - Remove Git hooks
-- [ ] `codeflow hook list` - Show installed hooks
-- [ ] `codeflow hook config` - Configure hooks
+- [ ] `gitflower hook install` - Install Git hooks
+- [ ] `gitflower hook remove` - Remove Git hooks
+- [ ] `gitflower hook list` - Show installed hooks
+- [ ] `gitflower hook config` - Configure hooks
 
 ### Output Formats
 - [ ] Human-readable by default
