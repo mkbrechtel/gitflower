@@ -21,7 +21,4 @@ iface/web/static/css/output.css
 go.work
 go.work.sum
 
-# Dependency directories
-vendor/
-
-my-repos
+/repos
