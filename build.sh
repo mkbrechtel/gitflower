@@ -2,6 +2,9 @@
 
 set -e
 
+# Add ./bin to PATH for this script
+export PATH="./bin:$PATH"
+
 # Check for --install-tailwind flag
 if [[ "$1" == "--install-tailwind" ]]; then
     echo "Installing Tailwind CSS to bin/tailwindcss..."
@@ -28,19 +31,28 @@ fi
 
 echo "Building GitFlower..."
 
-# Build Tailwind CSS - check PATH first, then bin/
+# Track build errors
+BUILD_ERROR=0
+
+# Build Tailwind CSS
 echo "→ Building Tailwind CSS..."
 if command -v tailwindcss &> /dev/null; then
     tailwindcss -i ./iface/web/static/css/input.css -o ./iface/web/static/css/output.css --minify
-elif [[ -x "bin/tailwindcss" ]]; then
-    bin/tailwindcss -i ./iface/web/static/css/input.css -o ./iface/web/static/css/output.css --minify
 else
     echo "  ⚠ Warning: tailwindcss not found, skipping CSS build"
     echo "  To install: ./build.sh --install-tailwind"
+    BUILD_ERROR=1
 fi
 
 # Build Go binary
 echo "→ Building Go binary..."
 go build -o bin/gitflower main.go
 
-echo "✓ Build complete: bin/gitflower"
+if [[ $BUILD_ERROR -eq 0 ]]; then
+    echo "✓ Build complete: bin/gitflower"
+else
+    echo "⚠ Build completed with warnings: bin/gitflower"
+    echo "  CSS was not built. Run ./build.sh --install-tailwind to fix this."
+fi
+
+exit $BUILD_ERROR

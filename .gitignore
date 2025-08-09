@@ -3,6 +3,7 @@ bin/
 
 # Generated files
 web/static/css/style.css
+iface/web/static/css/output.css
 
 # Go build artifacts
 *.exe
