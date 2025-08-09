@@ -2,6 +2,8 @@
 
 This document provides instructions for AI assistants and developers working on the GitFlower project.
 
+For user documentation and usage instructions, see [@README.md](README.md).
+
 ## Project Overview
 
 GitFlower is a lean, local Git development server that provides:

@@ -21,4 +21,5 @@ require (
 	golang.org/x/exp v0.0.0-20250531010427-b6e5de432a8b // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

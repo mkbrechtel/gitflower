@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitFlower - Local Git Development Server</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-4xl font-bold mb-4">Welcome to GitFlower</h1>
+        <p class="text-lg text-gray-600 mb-8">A lean, local Git development server</p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold mb-2">🔍 Repository Browser</h2>
+                <p class="text-gray-600">Browse your local Git repositories with a clean web interface</p>
+            </div>
+            
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold mb-2">🌿 Branch Visualization</h2>
+                <p class="text-gray-600">Visualize your Git branches and their relationships</p>
+            </div>
+            
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold mb-2">🔀 Merge Requests</h2>
+                <p class="text-gray-600">Manage stacked merge requests locally</p>
+            </div>
+            
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold mb-2">👀 Code Review</h2>
+                <p class="text-gray-600">Review code changes with inline comments</p>
+            </div>
+            
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold mb-2">🤖 AI Integration</h2>
+                <p class="text-gray-600">MCP server for AI agent integration</p>
+            </div>
+            
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold mb-2">🔐 Security First</h2>
+                <p class="text-gray-600">POSIX/SSH authentication, read-only web interface</p>
+            </div>
+        </div>
+        
+        <div class="mt-12">
+            <h2 class="text-2xl font-semibold mb-4">Current Time</h2>
+            <p class="text-lg">Server Time: {{.Time}}</p>
+        </div>
+    </div>
+</body>
+</html>
