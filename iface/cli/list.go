@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"os"
 	"text/tabwriter"
+	"time"
 
-	"gitflower/app"
+	"gitflower/repos"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,12 +27,12 @@ func executeList(cli *CLI, args []string) error {
 		return err
 	}
 	
-	store := cli.app.RepoStore()
+	store := cli.app.Store
 	if store == nil {
 		return fmt.Errorf("repository store not initialized")
 	}
 	
-	repos, warnings, err := store.Scan()
+	repositories, warnings, err := store.Scan()
 	if err != nil {
 		return fmt.Errorf("scanning repositories: %w", err)
 	}
@@ -44,7 +45,7 @@ func executeList(cli *CLI, args []string) error {
 		fmt.Fprintln(os.Stderr)
 	}
 	
-	config := cli.app.Config()
+	config := cli.app.Config
 	outputFormat := config.CLI.OutputFormat
 	if *format != "table" {
 		outputFormat = *format
@@ -52,22 +53,22 @@ func executeList(cli *CLI, args []string) error {
 	
 	switch outputFormat {
 	case "json":
-		return outputJSON(repos)
+		return outputJSON(repositories)
 	case "yaml":
-		return outputYAML(repos)
+		return outputYAML(repositories)
 	default:
-		return outputTable(repos)
+		return outputTable(repositories)
 	}
 }
 
-func outputTable(repos interface{}) error {
+func outputTable(repositories interface{}) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer w.Flush()
 	
 	fmt.Fprintln(w, "PATH\tBRANCHES\tMR\tSIZE\tLAST UPDATE\tSTATUS")
 	fmt.Fprintln(w, "----\t--------\t--\t----\t-----------\t------")
 	
-	repoList, ok := repos.([]*app.Repository)
+	repoList, ok := repositories.([]*repos.Repository)
 	if !ok {
 		return fmt.Errorf("unexpected repos type")
 	}
@@ -91,7 +92,7 @@ func outputTable(repos interface{}) error {
 			repo.BranchCount,
 			repo.MRCount,
 			float64(repo.Size)/(1024*1024),
-			repo.LastUpdate,
+			repo.LastUpdate.Format(time.RFC3339),
 			status,
 		)
 	}

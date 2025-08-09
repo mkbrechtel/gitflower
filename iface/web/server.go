@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gitflower/app"
+	"gitflower/repos"
 )
 
 //go:embed templates/*
@@ -34,9 +35,9 @@ func NewServer(application *app.Application) (*Server, error) {
 }
 
 func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
-	store := s.app.RepoStore()
+	store := s.app.Store
 	
-	var repos interface{}
+	var repositories []*repos.Repository
 	var scanErrors []string
 	
 	if store != nil {
@@ -45,21 +46,21 @@ func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error scanning repositories: %v", err)
 			scanErrors = append(scanErrors, err.Error())
 		} else {
-			repos = repoList
+			repositories = repoList
 			scanErrors = warnings
 		}
 	}
 	
 	data := struct {
 		Time        string
-		Repos       interface{}
+		Repos       []*repos.Repository
 		ScanErrors  []string
 		Config      *app.Config
 	}{
 		Time:       time.Now().Format("2006-01-02 15:04:05"),
-		Repos:      repos,
+		Repos:      repositories,
 		ScanErrors: scanErrors,
-		Config:     s.app.Config(),
+		Config:     s.app.Config,
 	}
 
 	err := s.templates.ExecuteTemplate(w, "index.html", data)
@@ -75,6 +76,6 @@ func (s *Server) Start(addr string) error {
 	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 	mux.HandleFunc("/", s.HandleIndex)
 
-	s.app.Logger().Info("GitFlower web server started", "address", addr)
+	s.app.Logger.Info("GitFlower web server started", "address", addr)
 	return http.ListenAndServe(addr, mux)
 }

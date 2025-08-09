@@ -22,7 +22,7 @@ func executeWeb(cli *CLI, args []string) error {
 		return err
 	}
 	
-	serverAddr := cli.app.Config().Web.Address
+	serverAddr := cli.app.Config.Web.Address
 	if *addr != "" {
 		serverAddr = *addr
 	}
@@ -32,6 +32,6 @@ func executeWeb(cli *CLI, args []string) error {
 		return fmt.Errorf("creating server: %w", err)
 	}
 	
-	cli.app.Logger().Info("Starting web server", "address", serverAddr)
+	cli.app.Logger.Info("Starting web server", "address", serverAddr)
 	return server.Start(serverAddr)
 }

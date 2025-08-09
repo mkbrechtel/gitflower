@@ -81,12 +81,13 @@ Each package owns its configuration section in the YAML file:
 **IMPORTANT**: Developers must follow this workflow step-by-step when implementing features:
 
 ### 0. Feature Specification
-- Check if a feature specification exists in `docs/todo/<feature-name>.feature.md`
+- Check if a feature specification exists in `docs/features/proposals/<feature-name>.feature.md`
 - If no spec exists, work with the maintainer to define requirements first
 - Get maintainer approval on the feature specification before proceeding
 
 ### 1. Implementation Planning
 - Read the feature specification thoroughly
+- Review already implemented features in `docs/features/` to understand existing functionality
 - Propose a detailed implementation plan to the maintainer
 - Get explicit approval from the maintainer before proceeding
 
@@ -98,10 +99,12 @@ Each package owns its configuration section in the YAML file:
 - Implement according to the approved spec
 - Follow the package structure and coding standards
 - Write clean, modular, testable code
+- Ensure all existing features continue to work as documented in `docs/features/`
 
 ### 4. Testing
 - Write comprehensive unit tests for all new code
-- Create E2E test scenarios covering user stories
+- Create E2E test scenarios covering user stories in `test/e2e_<feature-name>_test.go`
+- Run all existing E2E tests to ensure no regressions in implemented features
 - Ensure all tests pass before proceeding
 
 ### 5. Documentation
@@ -218,8 +221,8 @@ go test ./repos
 
 ## Project Management
 
-- Feature specifications go in `docs/todo/<feature-name>.feature.md`
-- Once implemented, rewrite as user documentation in `docs/`
+- Feature specifications go in `docs/features/proposals/<feature-name>.feature.md`
+- Once implemented, rewrite as user documentation in `docs/features/`
 - Use Git issues for bug tracking
 - Keep a CHANGELOG.md for releases
 

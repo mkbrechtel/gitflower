@@ -77,7 +77,7 @@ gitflower list
 ### Quick Start
 
 ```bash
-# Run with test configuration
+# Run current development version without building
 ./run.sh list
 ./run.sh web
 
@@ -87,6 +87,8 @@ gitflower list
 # Run development server with auto-reload
 make server
 ```
+
+**Note:** Use `./run.sh` to test the current development version without needing to build first. This is useful during development.
 
 ### Project Structure
 

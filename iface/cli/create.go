@@ -31,7 +31,7 @@ func executeCreate(cli *CLI, args []string) error {
 		repoPath += ".git"
 	}
 	
-	store := cli.app.RepoStore()
+	store := cli.app.Store
 	if store == nil {
 		return fmt.Errorf("repository store not initialized")
 	}
@@ -42,7 +42,7 @@ func executeCreate(cli *CLI, args []string) error {
 	
 	fmt.Printf("Created repository: %s\n", repoPath)
 	
-	config := cli.app.Config()
+	config := cli.app.Config
 	fullPath := fmt.Sprintf("%s/%s", strings.TrimSuffix(config.Repos.Directory, "/"), repoPath)
 	fmt.Printf("\nTo push to this repository:\n")
 	fmt.Printf("  git remote add origin %s\n", fullPath)

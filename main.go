@@ -6,23 +6,18 @@ import (
 
 	"gitflower/app"
 	"gitflower/iface/cli"
-	"gitflower/repos"
 )
 
 func main() {
 	// Get config path from environment or use default
 	configPath := os.Getenv("GITFLOWER_CONFIG")
 	
-	// Initialize application
+	// Initialize application with all components
 	application, err := app.New(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing application: %v\n", err)
 		os.Exit(1)
 	}
-	
-	// Initialize repository store
-	repoStore := repos.NewStore(&application.Config().Repos, application.Logger())
-	application.SetRepoStore(repoStore)
 	
 	// Create CLI interface
 	cliInterface := cli.New(application)

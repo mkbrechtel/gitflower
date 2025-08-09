@@ -1,0 +1,28 @@
+# GitFlower Configuration
+# Copy this file to ~/.config/gitflower/config.yaml
+
+# Repository management settings
+repos:
+  directory: "./repos/"        # Where repositories are stored
+  scan_depth: 3                # How deep to scan for repos
+  default_branch: "main"       # Default branch name
+
+# Web server settings  
+web:
+  address: ":8747"            # Web server address
+  theme: "light"              # UI theme (light/dark)
+  caching: true               # Enable caching
+
+# CLI settings
+cli:
+  output_format: "table"      # Output format (table/json/yaml)
+  colors: true                # Enable colored output
+  pager: false                # Use pager for long output
+
+# MCP server settings
+mcp:
+  stdio_mode: true            # Run in stdio mode
+
+# Logging settings
+log:
+  level: "info"               # Log level (debug/info/warn/error)

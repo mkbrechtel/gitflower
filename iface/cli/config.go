@@ -25,7 +25,7 @@ func executeConfig(cli *CLI, args []string) error {
 	remainingArgs := fs.Args()
 	
 	if len(remainingArgs) == 0 {
-		config := cli.app.Config()
+		config := cli.app.Config
 		data, err := yaml.Marshal(config)
 		if err != nil {
 			return fmt.Errorf("marshaling config: %w", err)
@@ -37,7 +37,7 @@ func executeConfig(cli *CLI, args []string) error {
 	key := remainingArgs[0]
 	
 	if len(remainingArgs) == 1 {
-		value, err := getConfigValue(cli.app.Config(), key)
+		value, err := getConfigValue(cli.app.Config, key)
 		if err != nil {
 			return err
 		}
@@ -46,11 +46,11 @@ func executeConfig(cli *CLI, args []string) error {
 	}
 	
 	value := remainingArgs[1]
-	if err := setConfigValue(cli.app.Config(), key, value); err != nil {
+	if err := setConfigValue(cli.app.Config, key, value); err != nil {
 		return err
 	}
 	
-	return cli.app.SaveConfig()
+	return fmt.Errorf("config save not yet implemented")
 }
 
 func getConfigValue(config interface{}, key string) (string, error) {
