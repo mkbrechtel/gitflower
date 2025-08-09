@@ -40,7 +40,7 @@ gitflower create myproject.git
 # List all repositories
 gitflower list
 
-# Start web interface (http://localhost:8080)
+# Start web interface (http://localhost:8747)
 gitflower web
 
 # View configuration
@@ -57,7 +57,7 @@ repos:
   scan_depth: 3                # How deep to scan for repos
   default_branch: "main"       # Default branch name
 web:
-  address: ":8080"            # Web server address
+  address: ":8747"            # Web server address
   theme: "light"              # UI theme (light/dark)
 cli:
   output_format: "table"      # Output format (table/json/yaml)

@@ -51,7 +51,7 @@ func DefaultConfig() *Config {
 			DefaultBranch: "main",
 		},
 		Web: WebConfig{
-			Address:  ":8080",
+			Address:  ":8747",
 			Theme:    "light",
 			CacheTTL: 300,
 		},
