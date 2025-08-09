@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"gitflower/repos"
+	"gitflower/tree"
 )
 
-func create(store *repos.Store, config repos.Config, args []string) error {
+func create(store *tree.Store, config tree.Config, args []string) error {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: gitflower create <repository-path>\n")

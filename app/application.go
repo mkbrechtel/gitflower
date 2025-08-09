@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"os"
 
-	"gitflower/repos"
+	"gitflower/tree"
 )
 
 // Run is the main entry point for the application
@@ -21,7 +21,7 @@ func Run(args []string) int {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// Create repository store
-	store, err := repos.NewStore(config.Repos, logger)
+	store, err := tree.NewStore(config.Repos, logger)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating repository store: %v\n", err)
 		return 1
@@ -37,7 +37,7 @@ func Run(args []string) int {
 }
 
 // executeCommand routes to the appropriate command handler
-func executeCommand(store *repos.Store, config *globalConfig, args []string) error {
+func executeCommand(store *tree.Store, config *globalConfig, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("no command specified")
 	}

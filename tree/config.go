@@ -1,4 +1,4 @@
-package repos
+package tree
 
 type Config struct {
 	Directory     string `yaml:"directory"`

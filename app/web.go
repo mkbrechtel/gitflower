@@ -4,11 +4,11 @@ import (
 	"flag"
 	"fmt"
 
-	"gitflower/repos"
+	"gitflower/tree"
 	webapp "gitflower/web"
 )
 
-func webCmd(store *repos.Store, config webapp.Config, args []string) error {
+func webCmd(store *tree.Store, config webapp.Config, args []string) error {
 	fs := flag.NewFlagSet("web", flag.ExitOnError)
 	addr := fs.String("addr", "", "Server address (overrides config)")
 	

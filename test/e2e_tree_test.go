@@ -166,7 +166,7 @@ func TestE2ERepos(t *testing.T) {
 	// User Story 5: Web documentation
 	t.Run("UserStory5_Documentation", func(t *testing.T) {
 		// Verify documentation exists
-		docPath := filepath.Join("..", "docs", "features", "repos.md")
+		docPath := filepath.Join("..", "docs", "features", "tree.md")
 		if _, err := os.Stat(docPath); os.IsNotExist(err) {
 			t.Error("Repository management documentation not found")
 		}

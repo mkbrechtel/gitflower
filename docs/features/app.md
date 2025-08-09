@@ -10,7 +10,7 @@ gitflower/
 ├── app/                    # Core application and CLI commands
 │   ├── web/               # Web server
 │   └── mcp/               # Model Context Protocol (planned)
-├── repos/                  # Repository management
+├── tree/                   # Repository management
 │   └── git/               # Git operations
 └── main.go                # Minimal entry point
 ```

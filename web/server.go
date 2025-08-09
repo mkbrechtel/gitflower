@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"gitflower/repos"
+	"gitflower/tree"
 )
 
 //go:embed templates/*
@@ -18,12 +18,12 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	store     *repos.Store
+	store     *tree.Store
 	templates *template.Template
 }
 
 // Run starts the web server with the given store and configuration
-func Run(store *repos.Store, config Config) error {
+func Run(store *tree.Store, config Config) error {
 	templates, err := template.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		return fmt.Errorf("parsing templates: %w", err)
@@ -52,7 +52,7 @@ func Run(store *repos.Store, config Config) error {
 func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	store := s.store
 	
-	var repositories []*repos.Repository
+	var repositories []*tree.Repository
 	var scanErrors []string
 	
 	if store != nil {
@@ -68,7 +68,7 @@ func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	
 	data := struct {
 		Time        string
-		Repos       []*repos.Repository
+		Repos       []*tree.Repository
 		ScanErrors  []string
 	}{
 		Time:       time.Now().Format("2006-01-02 15:04:05"),

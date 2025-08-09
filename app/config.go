@@ -6,14 +6,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"gitflower/repos"
+	"gitflower/tree"
 	"gitflower/web"
 
 	"gopkg.in/yaml.v3"
 )
 
 type globalConfig struct {
-	Repos repos.Config `yaml:"repos"`
+	Repos tree.Config `yaml:"repos"`
 	Web   web.Config   `yaml:"web"`
 }
 
@@ -48,7 +48,7 @@ func load(args []string) (*globalConfig, []string, error) {
 
 	// Load default config
 	config := &globalConfig{
-		Repos: repos.Config{
+		Repos: tree.Config{
 			Directory:     "./repos/",
 			ScanDepth:     3,
 			DefaultBranch: "main",

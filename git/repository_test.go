@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v6"
-	"gitflower/repos"
+	"gitflower/tree"
 )
 
 func TestCreateRepository(t *testing.T) {
@@ -26,7 +26,7 @@ func TestCreateRepository(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := repos.CreateRepository(tempDir, tt.path)
+			err := tree.CreateRepository(tempDir, tt.path)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateRepository(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
 			}

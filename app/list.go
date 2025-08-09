@@ -8,11 +8,11 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"gitflower/repos"
+	"gitflower/tree"
 	"gopkg.in/yaml.v3"
 )
 
-func list(store *repos.Store, args []string) error {
+func list(store *tree.Store, args []string) error {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	format := fs.String("format", "table", "Output format (table, json, yaml)")
 	showWarnings := fs.Bool("warnings", false, "Show scan warnings")
@@ -60,7 +60,7 @@ func outputTable(repositories interface{}) error {
 	fmt.Fprintln(w, "PATH\tBRANCHES\tMR\tSIZE\tLAST UPDATE\tSTATUS")
 	fmt.Fprintln(w, "----\t--------\t--\t----\t-----------\t------")
 	
-	repoList, ok := repositories.([]*repos.Repository)
+	repoList, ok := repositories.([]*tree.Repository)
 	if !ok {
 		return fmt.Errorf("unexpected repos type")
 	}

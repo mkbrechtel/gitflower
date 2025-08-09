@@ -20,7 +20,7 @@ main.go
    ↓
 app/Application (central state & config)
    ↓
-repos/Store (repository management)
+tree/Store (repository management)
    ↓
 iface/* (user interfaces: CLI, Web, MCP)
 ```
@@ -28,7 +28,7 @@ iface/* (user interfaces: CLI, Web, MCP)
 ### Package Responsibilities
 
 - **app/** - Core application layer with centralized state, configuration, and logging
-- **repos/** - Repository management, Git operations, and storage
+- **tree/** - Repository management, Git operations, and storage
 - **iface/cli/** - Command-line interface implementation
 - **iface/web/** - Web server and HTTP handlers
 - **iface/mcp/** - Model Context Protocol server (planned)
@@ -36,7 +36,7 @@ iface/* (user interfaces: CLI, Web, MCP)
 ### Configuration Design
 
 Each package owns its configuration section in the YAML file:
-- `repos:` - Repository settings (repos package)
+- `repos:` - Repository settings (tree package)
 - `web:` - Web server settings (iface/web package)
 - `cli:` - CLI settings (iface/cli package)
 - `mcp:` - MCP settings (iface/mcp package)
@@ -145,13 +145,13 @@ GITFLOWER_CONFIG=/path/to/config.yaml gitflower <command>
 ```bash
 # View package documentation
 go doc ./app
-go doc ./repos
+go doc ./tree
 
 # View specific function
-go doc repos.Store.Create
+go doc tree.Store.Create
 
 # View with examples
-go doc -all ./repos
+go doc -all ./tree
 ```
 
 ### Testing
@@ -163,7 +163,7 @@ go test ./...
 go test -cover ./...
 
 # Run specific package tests
-go test ./repos
+go test ./tree
 ```
 
 ## Technology Stack

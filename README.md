@@ -95,7 +95,7 @@ make server
 ```
 gitflower/
 ├── app/       # Core application layer
-├── repos/     # Repository management
+├── tree/      # Repository management
 ├── iface/     # User interfaces
 │   ├── cli/   # Command-line interface
 │   ├── web/   # Web server
