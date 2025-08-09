@@ -22,25 +22,18 @@ app/Application (central state & config)
    ↓
 tree/Store (repository management)
    ↓
-iface/* (user interfaces: CLI, Web, MCP)
+app/* (user interfaces: CLI, Web, MCP)
 ```
-
-### Package Responsibilities
-
-- **app/** - Core application layer with centralized state, configuration, and logging
-- **tree/** - Repository management, Git operations, and storage
-- **iface/cli/** - Command-line interface implementation
-- **iface/web/** - Web server and HTTP handlers
-- **iface/mcp/** - Model Context Protocol server (planned)
 
 ### Configuration Design
 
 Each package owns its configuration section in the YAML file:
 - `repos:` - Repository settings (tree package)
 - `web:` - Web server settings (iface/web package)
-- `cli:` - CLI settings (iface/cli package)
 - `mcp:` - MCP settings (iface/mcp package)
 - `log:` - Logging configuration (app package)
+
+The Config struct is supposed to be in the package needing the config, for example web.Config contains the config for the web server. It gets included by the app package.
 
 ## Coding Standards
 
@@ -120,28 +113,11 @@ Each package owns its configuration section in the YAML file:
 
 ## Development Tools
 
-### Building
-```bash
-# Full build with Tailwind CSS
-./build.sh
-
-# Install Tailwind if missing
-./build.sh --install-tailwind
-
-# Development server with auto-reload
-make server
-```
-
-### Running
-```bash
-# Run with test configuration
-./run.sh <command>
-
-# Run with custom config
-GITFLOWER_CONFIG=/path/to/config.yaml gitflower <command>
-```
-
 ### Go Documentation
+
+**Note:** Developers should use `go doc` to explore and understand the codebase. This is the standard Go way to look up function signatures, type definitions, and package documentation.
+
+### Usage
 ```bash
 # View package documentation
 go doc ./app
@@ -154,17 +130,6 @@ go doc tree.Store.Create
 go doc -all ./tree
 ```
 
-### Testing
-```bash
-# Run all tests
-go test ./...
-
-# Run with coverage
-go test -cover ./...
-
-# Run specific package tests
-go test ./tree
-```
 
 ## Technology Stack
 

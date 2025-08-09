@@ -105,14 +105,40 @@ gitflower/
 └── test/      # Tests and test configuration
 ```
 
+### Building
+
+```bash
+# Full build with Tailwind CSS
+./build.sh
+
+# Install Tailwind if missing
+./build.sh --install-tailwind
+
+# Development server with auto-reload
+make server
+```
+
+### Running
+
+```bash
+# Run with test configuration
+./run.sh <command>
+
+# Run with custom config
+GITFLOWER_CONFIG=/path/to/config.yaml gitflower <command>
+```
+
 ### Testing
 
 ```bash
 # Run all tests
 go test ./...
 
-# Run with verbose output
-go test -v ./...
+# Run with coverage
+go test -cover ./...
+
+# Run specific package tests
+go test ./tree
 ```
 
 ## Contributing
