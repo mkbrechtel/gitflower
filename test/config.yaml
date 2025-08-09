@@ -2,7 +2,7 @@
 # This config is used when running via ./run.sh
 
 repos:
-  directory: "./test-repos/"    # Test repository directory
+  directory: "./repos/"    # Test repository directory
   scan_depth: 3                  # How deep to scan for repos
   default_branch: "main"         # Default branch name
 
