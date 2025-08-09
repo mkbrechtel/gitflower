@@ -1,7 +1,6 @@
 package app
 
 import (
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -58,18 +57,4 @@ func executeCommand(store *repos.Store, config *globalConfig, args []string) err
 	default:
 		return fmt.Errorf("unknown command: %s", cmd)
 	}
-}
-
-// configCmd displays configuration values
-func configCmd(config *globalConfig, args []string) error {
-	fs := flag.NewFlagSet("config", flag.ExitOnError)
-	fs.Parse(args)
-
-	// For now, just print the config
-	fmt.Printf("Repositories directory: %s\n", config.Repos.Directory)
-	fmt.Printf("Scan depth: %d\n", config.Repos.ScanDepth)
-	fmt.Printf("Default branch: %s\n", config.Repos.DefaultBranch)
-	fmt.Printf("Web address: %s\n", config.Web.Address)
-	
-	return nil
 }
