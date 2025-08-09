@@ -185,6 +185,13 @@ go test ./repos
 - Static files go in `iface/web/static/`
 - CSS is built with Tailwind CSS to `iface/web/static/css/`
 
+### CSS Styling Guidelines
+- **ONLY use Tailwind utility classes** - No inline styles or custom CSS
+- All styling must be done through Tailwind utility classes (e.g., `class="bg-blue-500 text-white p-4"`)
+- DO NOT write static CSS styles or use `style=""` attributes
+- DO NOT create custom CSS files beyond the Tailwind-generated output
+- For repeated styling patterns, use Go templates/partials instead of @apply
+
 ## Error Handling
 - Always return errors up the call stack
 - Wrap errors with context using `fmt.Errorf`
