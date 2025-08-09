@@ -1,134 +1,75 @@
 package app
 
 import (
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"gitflower/repos"
-	"gopkg.in/yaml.v3"
 )
 
-type Application struct {
-	Config *Config
-	Store  *repos.Store
-	Logger *slog.Logger
-}
-
-func New(configPath string) (*Application, error) {
-	config, err := LoadConfig(configPath)
+// Run is the main entry point for the application
+func Run(args []string) int {
+	// Load configuration and parse global flags
+	config, remainingArgs, err := load(args)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
+		return 1
 	}
 
-	logLevel := slog.LevelInfo
-	switch config.Log.Level {
-	case "debug":
-		logLevel = slog.LevelDebug
-	case "warn":
-		logLevel = slog.LevelWarn
-	case "error":
-		logLevel = slog.LevelError
-	}
+	// Create logger
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
-
+	// Create repository store
 	store, err := repos.NewStore(config.Repos, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create repository store: %w", err)
+		fmt.Fprintf(os.Stderr, "Error creating repository store: %v\n", err)
+		return 1
 	}
 
-	return &Application{
-		Config: config,
-		Store:  store,
-		Logger: logger,
-	}, nil
-}
-
-type Config struct {
-	Repos repos.Config       `yaml:"repos"`
-	Web   WebConfig          `yaml:"web"`
-	CLI   CLIConfig          `yaml:"cli"`
-	MCP   MCPConfig          `yaml:"mcp"`
-	Log   LogConfig          `yaml:"log"`
-}
-
-type WebConfig struct {
-	Address string `yaml:"address"`
-	Theme   string `yaml:"theme"`
-	Caching bool   `yaml:"caching"`
-}
-
-type CLIConfig struct {
-	OutputFormat string `yaml:"output_format"`
-	Colors       bool   `yaml:"colors"`
-	Pager        bool   `yaml:"pager"`
-}
-
-type MCPConfig struct {
-	StdioMode bool `yaml:"stdio_mode"`
-}
-
-type LogConfig struct {
-	Level string `yaml:"level"`
-}
-
-func LoadConfig(path string) (*Config, error) {
-	if path == "" {
-		path = defaultConfigPath()
+	// Execute command
+	if err := executeCommand(store, config, remainingArgs); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
 	}
 
-	config := &Config{
-		Repos: repos.Config{
-			Directory:     "./repos/",
-			ScanDepth:     3,
-			DefaultBranch: "main",
-		},
-		Web: WebConfig{
-			Address: ":8747",
-			Theme:   "light",
-			Caching: true,
-		},
-		CLI: CLIConfig{
-			OutputFormat: "table",
-			Colors:       true,
-			Pager:        false,
-		},
-		MCP: MCPConfig{
-			StdioMode: true,
-		},
-		Log: LogConfig{
-			Level: "info",
-		},
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return config, nil
-		}
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	if err := yaml.Unmarshal(data, config); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
-	}
-
-	return config, nil
+	return 0
 }
 
-func defaultConfigPath() string {
-	if configDir := os.Getenv("GITFLOWER_CONFIG"); configDir != "" {
-		return configDir
+// executeCommand routes to the appropriate command handler
+func executeCommand(store *repos.Store, config *globalConfig, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("no command specified")
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "config.yaml"
-	}
+	cmd := args[0]
+	cmdArgs := args[1:]
 
-	return filepath.Join(homeDir, ".config", "gitflower", "config.yaml")
+	switch cmd {
+	case "list":
+		return list(store, cmdArgs)
+	case "create":
+		return create(store, config.Repos, cmdArgs)
+	case "web":
+		return webCmd(store, config.Web, cmdArgs)
+	case "config":
+		return configCmd(config, cmdArgs)
+	default:
+		return fmt.Errorf("unknown command: %s", cmd)
+	}
+}
+
+// configCmd displays configuration values
+func configCmd(config *globalConfig, args []string) error {
+	fs := flag.NewFlagSet("config", flag.ExitOnError)
+	fs.Parse(args)
+
+	// For now, just print the config
+	fmt.Printf("Repositories directory: %s\n", config.Repos.Directory)
+	fmt.Printf("Scan depth: %d\n", config.Repos.ScanDepth)
+	fmt.Printf("Default branch: %s\n", config.Repos.DefaultBranch)
+	fmt.Printf("Web address: %s\n", config.Web.Address)
+	
+	return nil
 }

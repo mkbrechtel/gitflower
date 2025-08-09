@@ -2,12 +2,12 @@ package web
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"time"
 
-	"gitflower/app"
 	"gitflower/repos"
 )
 
@@ -18,24 +18,39 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	app       *app.Application
+	store     *repos.Store
 	templates *template.Template
 }
 
-func NewServer(application *app.Application) (*Server, error) {
+// Run starts the web server with the given store and configuration
+func Run(store *repos.Store, config Config) error {
 	templates, err := template.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("parsing templates: %w", err)
 	}
 
-	return &Server{
-		app:       application,
+	server := &Server{
+		store:     store,
 		templates: templates,
-	}, nil
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", server.HandleIndex)
+	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
+
+	httpServer := &http.Server{
+		Addr:         config.Address,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	log.Printf("Starting server on %s", config.Address)
+	return httpServer.ListenAndServe()
 }
 
 func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
-	store := s.app.Store
+	store := s.store
 	
 	var repositories []*repos.Repository
 	var scanErrors []string
@@ -55,12 +70,10 @@ func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		Time        string
 		Repos       []*repos.Repository
 		ScanErrors  []string
-		Config      *app.Config
 	}{
 		Time:       time.Now().Format("2006-01-02 15:04:05"),
 		Repos:      repositories,
 		ScanErrors: scanErrors,
-		Config:     s.app.Config,
 	}
 
 	err := s.templates.ExecuteTemplate(w, "index.html", data)
@@ -68,14 +81,4 @@ func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error rendering template: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
-}
-
-func (s *Server) Start(addr string) error {
-	mux := http.NewServeMux()
-	
-	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
-	mux.HandleFunc("/", s.HandleIndex)
-
-	s.app.Logger.Info("GitFlower web server started", "address", addr)
-	return http.ListenAndServe(addr, mux)
 }

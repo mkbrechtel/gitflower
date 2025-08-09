@@ -1,12 +1,14 @@
-package cli
+package app
 
 import (
 	"flag"
 	"fmt"
 	"strings"
+
+	"gitflower/repos"
 )
 
-func executeCreate(cli *CLI, args []string) error {
+func create(store *repos.Store, config repos.Config, args []string) error {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: gitflower create <repository-path>\n")
@@ -31,7 +33,6 @@ func executeCreate(cli *CLI, args []string) error {
 		repoPath += ".git"
 	}
 	
-	store := cli.app.Store
 	if store == nil {
 		return fmt.Errorf("repository store not initialized")
 	}
@@ -42,11 +43,10 @@ func executeCreate(cli *CLI, args []string) error {
 	
 	fmt.Printf("Created repository: %s\n", repoPath)
 	
-	config := cli.app.Config
-	fullPath := fmt.Sprintf("%s/%s", strings.TrimSuffix(config.Repos.Directory, "/"), repoPath)
+	fullPath := fmt.Sprintf("%s/%s", strings.TrimSuffix(config.Directory, "/"), repoPath)
 	fmt.Printf("\nTo push to this repository:\n")
 	fmt.Printf("  git remote add origin %s\n", fullPath)
-	fmt.Printf("  git push -u origin %s\n", config.Repos.DefaultBranch)
+	fmt.Printf("  git push -u origin %s\n", config.DefaultBranch)
 	
 	return nil
 }

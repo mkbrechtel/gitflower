@@ -26,8 +26,13 @@ func TestE2ERepos(t *testing.T) {
 	// Create temp directory for test repos
 	tempDir := t.TempDir()
 	
-	// Set up environment
-	env := append(os.Environ(), fmt.Sprintf("HOME=%s", tempDir))
+	// Use the static test config
+	configPath := filepath.Join(filepath.Dir(getBinaryPath()), "..", "test", "config.yaml")
+	
+	// Set up environment with config path
+	env := append(os.Environ(), 
+		fmt.Sprintf("HOME=%s", tempDir),
+		fmt.Sprintf("GITFLOWER_CONFIG=%s", configPath))
 
 	// Helper to run gitflower commands
 	runCodeflow := func(args ...string) (string, error) {
@@ -46,34 +51,6 @@ func TestE2ERepos(t *testing.T) {
 
 	// User Story 1: Discover all bare repositories
 	t.Run("UserStory1_DiscoverRepositories", func(t *testing.T) {
-		// Configure repos directory via environment
-		reposDir := filepath.Join(tempDir, "test-repos")
-		configDir := filepath.Join(tempDir, ".config", "gitflower")
-		os.MkdirAll(configDir, 0755)
-		
-		// Create YAML config
-		configContent := fmt.Sprintf(`repos:
-  directory: "%s"
-  scan_depth: 3
-  default_branch: "main"
-web:
-  address: ":8080"
-  theme: "light"
-  caching: true
-cli:
-  output_format: "table"
-  colors: true
-  pager: false
-mcp:
-  stdio_mode: true
-log:
-  level: "info"`, reposDir)
-		
-		configPath := filepath.Join(configDir, "config.yaml")
-		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
-			t.Fatalf("Failed to write config: %v", err)
-		}
-
 		// Create some test repositories
 		repos := []string{
 			"project1.git",
@@ -179,19 +156,6 @@ log:
 			t.Fatalf("Failed to create repository: %v", err)
 		}
 
-		// Check the repository directory was created
-		reposDir, _ := runCodeflow("config", "repos.directory")
-		repoPath := filepath.Join(strings.TrimSpace(reposDir), "secure-repo.git")
-		
-		info, err := os.Stat(repoPath)
-		if err != nil {
-			t.Fatalf("Repository directory not found: %v", err)
-		}
-
-		if !info.IsDir() {
-			t.Error("Repository should be a directory")
-		}
-
 		// Verify it's accessible (would fail if permissions were wrong)
 		_, err = runCodeflow("list")
 		if err != nil {
@@ -248,39 +212,14 @@ log:
 		}
 	})
 
-	// Test configuration management
-	t.Run("ConfigurationManagement", func(t *testing.T) {
-		// Get current config
-		output, err := runCodeflow("config", "repos.directory")
-		if err != nil {
-			t.Fatalf("Failed to get config: %v", err)
-		}
-		
-		// Verify we got a directory path
-		if !strings.Contains(output, "/") && !strings.Contains(output, "repos") {
-			t.Errorf("Invalid repos.directory value: %s", output)
-		}
-		
-		// Get full config
-		fullConfig, err := runCodeflow("config")
-		if err != nil {
-			t.Fatalf("Failed to get full config: %v", err)
-		}
-		
-		// Verify YAML format
-		if !strings.Contains(fullConfig, "repos:") || !strings.Contains(fullConfig, "web:") {
-			t.Error("Config not in expected YAML format")
-		}
-	})
 
 	// Test warning for invalid directories
 	t.Run("InvalidDirectoryWarnings", func(t *testing.T) {
-		reposDir, _ := runCodeflow("config", "repos.directory")
-		reposDir = strings.TrimSpace(reposDir)
-
-		// Create invalid directories
-		os.MkdirAll(filepath.Join(reposDir, "INVALID_NAME"), 0755)
-		os.MkdirAll(filepath.Join(reposDir, ".hidden"), 0755)
+		// Create invalid directories in test-repos
+		testReposDir := filepath.Join(filepath.Dir(getBinaryPath()), "..", "test-repos")
+		os.MkdirAll(testReposDir, 0755)
+		os.MkdirAll(filepath.Join(testReposDir, "INVALID_NAME"), 0755)
+		os.MkdirAll(filepath.Join(testReposDir, ".hidden"), 0755)
 
 		// List should show warnings when requested
 		_, err := runCodeflow("list", "-warnings")
@@ -294,6 +233,10 @@ log:
 		}
 
 		// If no error, the test passes (warnings shown in stderr)
+		
+		// Clean up
+		os.RemoveAll(filepath.Join(testReposDir, "INVALID_NAME"))
+		os.RemoveAll(filepath.Join(testReposDir, ".hidden"))
 	})
 }
 

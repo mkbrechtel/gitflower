@@ -1,13 +1,14 @@
-package cli
+package app
 
 import (
 	"flag"
 	"fmt"
 
-	"gitflower/iface/web"
+	"gitflower/repos"
+	webapp "gitflower/web"
 )
 
-func executeWeb(cli *CLI, args []string) error {
+func webCmd(store *repos.Store, config webapp.Config, args []string) error {
 	fs := flag.NewFlagSet("web", flag.ExitOnError)
 	addr := fs.String("addr", "", "Server address (overrides config)")
 	
@@ -22,16 +23,12 @@ func executeWeb(cli *CLI, args []string) error {
 		return err
 	}
 	
-	serverAddr := cli.app.Config.Web.Address
+	// Override address if provided
 	if *addr != "" {
-		serverAddr = *addr
+		config.Address = *addr
 	}
 	
-	server, err := web.NewServer(cli.app)
-	if err != nil {
-		return fmt.Errorf("creating server: %w", err)
-	}
-	
-	cli.app.Logger.Info("Starting web server", "address", serverAddr)
-	return server.Start(serverAddr)
+	// Call web.Run with store and config
+	fmt.Printf("Starting web server on %s\n", config.Address)
+	return webapp.Run(store, config)
 }

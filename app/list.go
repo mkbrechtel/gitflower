@@ -1,4 +1,4 @@
-package cli
+package app
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func executeList(cli *CLI, args []string) error {
+func list(store *repos.Store, args []string) error {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	format := fs.String("format", "table", "Output format (table, json, yaml)")
 	showWarnings := fs.Bool("warnings", false, "Show scan warnings")
@@ -26,8 +26,6 @@ func executeList(cli *CLI, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	
-	store := cli.app.Store
 	if store == nil {
 		return fmt.Errorf("repository store not initialized")
 	}
@@ -45,13 +43,7 @@ func executeList(cli *CLI, args []string) error {
 		fmt.Fprintln(os.Stderr)
 	}
 	
-	config := cli.app.Config
-	outputFormat := config.CLI.OutputFormat
-	if *format != "table" {
-		outputFormat = *format
-	}
-	
-	switch outputFormat {
+	switch *format {
 	case "json":
 		return outputJSON(repositories)
 	case "yaml":

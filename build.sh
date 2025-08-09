@@ -37,7 +37,7 @@ BUILD_ERROR=0
 # Build Tailwind CSS
 echo "→ Building Tailwind CSS..."
 if command -v tailwindcss &> /dev/null; then
-    tailwindcss -i ./iface/web/static/css/input.css -o ./iface/web/static/css/output.css --minify
+    tailwindcss -i ./web/static/css/input.css -o ./web/static/css/output.css --minify
 else
     echo "  ⚠ Warning: tailwindcss not found, skipping CSS build"
     echo "  To install: ./build.sh --install-tailwind"

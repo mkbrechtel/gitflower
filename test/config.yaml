@@ -1,0 +1,23 @@
+# Test configuration for GitFlower development
+# This config is used when running via ./run.sh
+
+repos:
+  directory: "./test-repos/"    # Test repository directory
+  scan_depth: 3                  # How deep to scan for repos
+  default_branch: "main"         # Default branch name
+
+web:
+  address: ":8747"              # Web server address
+  theme: "light"                # UI theme (light/dark)
+  caching: false                # Disable caching for development
+
+cli:
+  output_format: "table"        # Output format (table/json/yaml)
+  colors: true                  # Enable colored output
+  pager: false                  # Disable pager for testing
+
+mcp:
+  stdio_mode: false             # MCP stdio mode
+
+log:
+  level: "debug"                # Debug level for development/testing
