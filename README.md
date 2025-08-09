@@ -1,6 +1,6 @@
 # GitFlower
 
-A lean, local Git development server providing read-only web interface for repository visualization and management.
+A lean, local Git development server providing a read-only web interface for repository visualization and management.
 
 ## Features
 
@@ -16,117 +16,79 @@ A lean, local Git development server providing read-only web interface for repos
 
 - Go 1.21 or higher
 - Git
-- (Optional) Tailwind CSS standalone CLI for CSS compilation
 
-### Building from Source
+### Quick Install
 
 ```bash
-# Clone the repository
+# Clone and build
 git clone https://github.com/yourusername/gitflower.git
 cd gitflower
-
-# Build the application (includes Tailwind CSS if available)
 ./build.sh
 
-# Or install Tailwind CSS first if missing
+# If Tailwind CSS is missing, install it:
 ./build.sh --install-tailwind
-
-# Or build manually:
-make build
-
-# Or just the Go binary:
-go build -o bin/gitflower main.go
 ```
 
-The `build.sh` script will:
-1. Build Tailwind CSS (checks PATH first, then bin/tailwindcss)
-2. Compile the Go binary to `bin/gitflower`
+## Usage
 
-If Tailwind CSS is not found, run:
+### Basic Commands
+
 ```bash
-./build.sh --install-tailwind
+# Create a new repository
+gitflower create myproject.git
+
+# List all repositories
+gitflower list
+
+# Start web interface (http://localhost:8080)
+gitflower web
+
+# View configuration
+gitflower config
 ```
 
-This will automatically download the correct Tailwind CSS binary for your OS/architecture to `bin/tailwindcss`.
+### Configuration
 
-## Quick Start
-
-1. **Create a repository:**
-   ```bash
-   gitflower create myproject.git
-   ```
-
-2. **List repositories:**
-   ```bash
-   gitflower list
-   ```
-
-3. **Start the web server:**
-   ```bash
-   gitflower web
-   ```
-   Then open http://localhost:8080 in your browser.
-
-## Configuration
-
-GitFlower uses YAML configuration stored at `~/.config/gitflower/config.yaml`:
+GitFlower stores configuration at `~/.config/gitflower/config.yaml`:
 
 ```yaml
 repos:
-  directory: "./repos/"
-  scan_depth: 3
-  default_branch: "main"
+  directory: "./repos/"        # Where repositories are stored
+  scan_depth: 3                # How deep to scan for repos
+  default_branch: "main"       # Default branch name
 web:
-  address: ":8080"
-  theme: "light"
-  cache_ttl: 300
+  address: ":8080"            # Web server address
+  theme: "light"              # UI theme (light/dark)
 cli:
-  output_format: "table"
-  colors: true
-  pager: "less"
+  output_format: "table"      # Output format (table/json/yaml)
+  colors: true                # Enable colored output
 log:
-  level: "info"
-  format: "text"
+  level: "info"               # Log level (debug/info/warn/error)
 ```
 
-View or modify configuration:
+Override config location with `GITFLOWER_CONFIG` environment variable:
 ```bash
-# Show all configuration
-gitflower config
-
-# Get specific value
-gitflower config repos.directory
-
-# Set value (coming soon)
-gitflower config repos.directory /path/to/repos
+export GITFLOWER_CONFIG=/path/to/config.yaml
+gitflower list
 ```
 
 ## Development
 
-For development guidelines and architecture details, see [CLAUDE.md](CLAUDE.md).
-
-### Development Server
+### Quick Start
 
 ```bash
-# Run with auto-rebuild of CSS
+# Run with test configuration
+./run.sh list
+./run.sh web
+
+# Build the project
+./build.sh
+
+# Run development server with auto-reload
 make server
-
-# Or run individual components
-make tailwind-watch  # In one terminal
-go run main.go web   # In another terminal
 ```
 
-### Testing
-
-```bash
-# Run unit tests
-go test ./...
-
-# Run E2E tests
-go test ./test/...
-```
-
-## Project Structure
+### Project Structure
 
 ```
 gitflower/
@@ -136,10 +98,24 @@ gitflower/
 │   ├── cli/   # Command-line interface
 │   ├── web/   # Web server
 │   └── mcp/   # Model Context Protocol (planned)
-├── docs/      # User documentation
-├── pm/        # Project management
-└── test/      # E2E tests
+├── docs/      # Documentation
+│   └── todo/  # Feature specifications
+└── test/      # Tests and test configuration
 ```
+
+### Testing
+
+```bash
+# Run all tests
+go test ./...
+
+# Run with verbose output
+go test -v ./...
+```
+
+## Contributing
+
+See [CLAUDE.md](CLAUDE.md) for development guidelines and coding standards.
 
 ## License
 
