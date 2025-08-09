@@ -12,7 +12,8 @@ Implement a layered architecture with centralized application state and YAML-bas
 ```
 gitflower/
 ├── app/                    # Core application with central state
-├── repos/                  # Repository management and Git operations
+├── repos/                  # Repository hierarchy and folder management
+│   └── git/               # Individual Git repository operations
 ├── iface/                  # User interfaces
 │   ├── cli/               # Command-line interface
 │   ├── web/               # Web server
@@ -34,7 +35,9 @@ Each package defines its own Config struct and validation logic.
 
 **Application (`app/`)**: Central application struct holding configuration, repository store, and logger. Single initialization point that creates all shared resources.
 
-**Repository Store (`repos/`)**: Interface-based abstraction over go-git library. Handles all Git operations, repository management, and merge request storage (as Git refs). No external database - everything stored in Git.
+**Repository Store (`repos/`)**: Manages the repository hierarchy and folder structure. Provides discovery and organization of multiple repositories within the configured directory structure.
+
+**Git Operations (`repos/git/`)**: Provides models and functions to work with Git bare repositories. Handles Git operations for individual repositories, merge request storage (as Git refs), and repository-specific functionality. No external database - everything stored in Git.
 
 **Interfaces (`iface/`)**: Each interface (CLI, Web, MCP) receives the Application instance and its specific config section. Interfaces are independent and don't know about each other.
 
