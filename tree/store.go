@@ -7,16 +7,18 @@ import (
 )
 
 type Store struct {
-	config  Config
-	logger  *slog.Logger
-	scanner *Scanner
+	config    Config
+	logger    *slog.Logger
+	scanner   *Scanner
+	Directory string
 }
 
 func NewStore(config Config, logger *slog.Logger) (*Store, error) {
 	return &Store{
-		config:  config,
-		logger:  logger,
-		scanner: NewScanner(config.Directory, logger),
+		config:    config,
+		logger:    logger,
+		scanner:   NewScanner(config.Directory, logger),
+		Directory: config.Directory,
 	}, nil
 }
 
@@ -26,7 +28,7 @@ func (s *Store) Scan() ([]*Repository, []string, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("scanning repositories: %w", err)
 	}
-	
+
 	return repos, warnings, nil
 }
 

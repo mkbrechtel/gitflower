@@ -58,14 +58,14 @@ func ValidatePath(path string) error {
 	}
 
 	parts := strings.Split(path, string(filepath.Separator))
-	
+
 	for i, part := range parts {
 		if part == "" {
 			continue
 		}
 
 		isLast := i == len(parts)-1
-		
+
 		if isLast && strings.HasSuffix(part, ".git") {
 			if err := ValidateSlug(strings.TrimSuffix(part, ".git")); err != nil {
 				return fmt.Errorf("repository name: %w", err)

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.RepoName}} - GitFlower</title>
+    <link rel="stylesheet" href="/static/css/output.css">
+</head>
+<body class="bg-gray-50">
+    <nav class="bg-white shadow">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <a href="/" class="text-2xl font-bold text-gray-800">GitFlower</a>
+                <div class="space-x-4">
+                    <a href="/repos/" class="text-blue-600 hover:text-blue-800">Repositories</a>
+                    <a href="/docs/" class="text-gray-600 hover:text-gray-800">Documentation</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto px-4 py-8">
+        <div class="mb-6">
+            <h1 class="text-3xl font-bold">{{.RepoName}}</h1>
+            <p class="text-gray-600 mt-2">
+                Clone: <code class="bg-gray-100 px-2 py-1 rounded">git clone http://{{$.Request.Host}}/repos/{{.RepoName}}</code>
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold">Files</h2>
+                        {{if .Head}}
+                        <a href="/repos/{{.RepoName}}/tree/{{.Head.Name.Short}}/" class="text-blue-600 hover:text-blue-800">
+                            Browse Files →
+                        </a>
+                        {{end}}
+                    </div>
+                    
+                    {{if not .Head}}
+                    <p class="text-gray-600">This repository is empty.</p>
+                    {{end}}
+                </div>
+
+                {{if .Commits}}
+                <div class="bg-white rounded-lg shadow p-6 mt-6">
+                    <h2 class="text-xl font-semibold mb-4">Recent Commits</h2>
+                    <div class="space-y-3">
+                        {{range .Commits}}
+                        <div class="border-b pb-3">
+                            <a href="/repos/{{$.RepoName}}/commit/{{.Hash}}" class="text-blue-600 hover:text-blue-800 font-mono text-sm">
+                                {{.Hash.String | printf "%.7s"}}
+                            </a>
+                            <p class="text-gray-800 mt-1">{{.Message}}</p>
+                            <p class="text-gray-500 text-sm mt-1">
+                                {{.Author.Name}} - {{.Author.When.Format "2006-01-02 15:04"}}
+                            </p>
+                        </div>
+                        {{end}}
+                    </div>
+                </div>
+                {{end}}
+            </div>
+
+            <div>
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h2 class="text-xl font-semibold mb-4">Branches</h2>
+                    {{if .Branches}}
+                    <ul class="space-y-2">
+                        {{range .Branches}}
+                        <li>
+                            <a href="/repos/{{$.RepoName}}/tree/{{.}}/" class="text-blue-600 hover:text-blue-800">
+                                {{.}}
+                            </a>
+                        </li>
+                        {{end}}
+                    </ul>
+                    {{else}}
+                    <p class="text-gray-600">No branches found.</p>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

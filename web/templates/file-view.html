@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Path}} - {{.RepoName}} - GitFlower</title>
+    <link rel="stylesheet" href="/static/css/output.css">
+</head>
+<body class="bg-gray-50">
+    <nav class="bg-white shadow">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <a href="/" class="text-2xl font-bold text-gray-800">GitFlower</a>
+                <div class="space-x-4">
+                    <a href="/repos/" class="text-blue-600 hover:text-blue-800">Repositories</a>
+                    <a href="/docs/" class="text-gray-600 hover:text-gray-800">Documentation</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto px-4 py-8">
+        <div class="mb-6">
+            <nav class="text-sm">
+                <a href="/repos/{{.RepoName}}" class="text-blue-600 hover:text-blue-800">{{.RepoName}}</a>
+                <span class="text-gray-500 mx-1">/</span>
+                <span class="text-gray-700">{{.Ref}}</span>
+                <span class="text-gray-500 mx-1">/</span>
+                <span class="text-gray-700">{{.Path}}</span>
+            </nav>
+        </div>
+
+        <div class="bg-white rounded-lg shadow">
+            <div class="p-4 border-b bg-gray-50">
+                <h2 class="text-lg font-semibold">{{.Path}}</h2>
+            </div>
+            <div class="p-4">
+                {{if .IsBinary}}
+                <p class="text-gray-600">Binary file not shown.</p>
+                {{else}}
+                <pre class="bg-gray-50 p-4 rounded overflow-x-auto"><code>{{.Content}}</code></pre>
+                {{end}}
+            </div>
+        </div>
+    </main>
+</body>
+</html>

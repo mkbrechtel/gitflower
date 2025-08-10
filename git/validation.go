@@ -17,21 +17,21 @@ func ValidateSlug(name string) error {
 	if name == "." || name == ".." {
 		return fmt.Errorf("invalid name '%s': cannot use special directory names", name)
 	}
-	
+
 	// Reject names starting with dot
 	if strings.HasPrefix(name, ".") {
 		return fmt.Errorf("invalid name '%s': cannot start with a dot", name)
 	}
-	
+
 	// Reject names containing double dots
 	if strings.Contains(name, "..") {
 		return fmt.Errorf("invalid name '%s': cannot contain '..'", name)
 	}
-	
+
 	if !slugRegex.MatchString(name) {
 		return fmt.Errorf("invalid name '%s': must contain only lowercase letters, numbers, hyphens, and dots", name)
 	}
-	
+
 	return nil
 }
 
@@ -60,12 +60,12 @@ func ValidateOrgFolder(name string) error {
 // ValidatePath validates a full repository path
 func ValidatePath(path string) error {
 	parts := strings.Split(filepath.Clean(path), string(filepath.Separator))
-	
+
 	for i, part := range parts {
 		if part == "" || part == "." || part == ".." {
 			continue
 		}
-		
+
 		// Last part should be a repo name
 		if i == len(parts)-1 {
 			if err := ValidateRepoName(part); err != nil {
@@ -78,7 +78,7 @@ func ValidatePath(path string) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 

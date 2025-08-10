@@ -16,25 +16,25 @@ func list(store *tree.Store, args []string) error {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	format := fs.String("format", "table", "Output format (table, json, yaml)")
 	showWarnings := fs.Bool("warnings", false, "Show scan warnings")
-	
+
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: gitflower list [options]\n")
 		fmt.Fprintf(fs.Output(), "\nOptions:\n")
 		fs.PrintDefaults()
 	}
-	
+
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if store == nil {
 		return fmt.Errorf("repository store not initialized")
 	}
-	
+
 	repositories, warnings, err := store.Scan()
 	if err != nil {
 		return fmt.Errorf("scanning repositories: %w", err)
 	}
-	
+
 	if *showWarnings && len(warnings) > 0 {
 		fmt.Fprintf(os.Stderr, "Warnings:\n")
 		for _, warning := range warnings {
@@ -42,7 +42,7 @@ func list(store *tree.Store, args []string) error {
 		}
 		fmt.Fprintln(os.Stderr)
 	}
-	
+
 	switch *format {
 	case "json":
 		return outputJSON(repositories)
@@ -56,20 +56,20 @@ func list(store *tree.Store, args []string) error {
 func outputTable(repositories interface{}) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer w.Flush()
-	
+
 	fmt.Fprintln(w, "PATH\tBRANCHES\tMR\tSIZE\tLAST UPDATE\tSTATUS")
 	fmt.Fprintln(w, "----\t--------\t--\t----\t-----------\t------")
-	
+
 	repoList, ok := repositories.([]*tree.Repository)
 	if !ok {
 		return fmt.Errorf("unexpected repos type")
 	}
-	
+
 	if len(repoList) == 0 {
 		fmt.Fprintln(w, "No repositories found")
 		return nil
 	}
-	
+
 	for _, repo := range repoList {
 		status := "OK"
 		if !repo.IsValid {
@@ -78,7 +78,7 @@ func outputTable(repositories interface{}) error {
 				status = "ERROR: " + repo.Error
 			}
 		}
-		
+
 		fmt.Fprintf(w, "%s\t%d\t%d\t%.2f MB\t%s\t%s\n",
 			repo.RelativePath,
 			repo.BranchCount,
@@ -88,7 +88,7 @@ func outputTable(repositories interface{}) error {
 			status,
 		)
 	}
-	
+
 	return nil
 }
 

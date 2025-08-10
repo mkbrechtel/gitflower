@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GitFlower - Local Git Development Server</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/output.css">
 </head>
-<body>
+<body class="bg-gray-50">
     <div class="container mx-auto px-4 py-8">
         <h1 class="text-4xl font-bold mb-4">Welcome to GitFlower</h1>
         <p class="text-lg text-gray-600 mb-8">A lean, local Git development server</p>
@@ -44,8 +44,27 @@
         </div>
         
         <div class="mt-12">
-            <h2 class="text-2xl font-semibold mb-4">Current Time</h2>
-            <p class="text-lg">Server Time: {{.Time}}</p>
+            <h2 class="text-2xl font-semibold mb-4">Your Repositories</h2>
+            {{if .Repos}}
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {{range .Repos}}
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h3 class="font-semibold">
+                        <a href="/repos/{{.Path}}" class="text-blue-600 hover:text-blue-800">{{.Path}}</a>
+                    </h3>
+                </div>
+                {{end}}
+            </div>
+            <div class="mt-4">
+                <a href="/repos/" class="text-blue-600 hover:text-blue-800">View all repositories →</a>
+            </div>
+            {{else}}
+            <p class="text-gray-600">No repositories found. Create one with: <code class="bg-gray-100 px-2 py-1 rounded">gitflower create myproject.git</code></p>
+            {{end}}
+        </div>
+        
+        <div class="mt-8 text-sm text-gray-500">
+            <p>Server Time: {{.Time}}</p>
         </div>
     </div>
 </body>

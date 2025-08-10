@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation - GitFlower</title>
+    <link rel="stylesheet" href="/static/css/output.css">
+</head>
+<body class="bg-gray-50">
+    <nav class="bg-white shadow">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <a href="/" class="text-2xl font-bold text-gray-800">GitFlower</a>
+                <div class="space-x-4">
+                    <a href="/repos/" class="text-gray-600 hover:text-gray-800">Repositories</a>
+                    <a href="/docs/" class="text-blue-600 hover:text-blue-800">Documentation</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-6">Documentation</h1>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <aside class="lg:col-span-1">
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h2 class="text-lg font-semibold mb-3">Topics</h2>
+                    <nav class="space-y-2">
+                        <a href="/docs/getting-started" class="block text-blue-600 hover:text-blue-800">Getting Started</a>
+                        <a href="/docs/repositories" class="block text-blue-600 hover:text-blue-800">Managing Repositories</a>
+                        <a href="/docs/web-interface" class="block text-blue-600 hover:text-blue-800">Web Interface</a>
+                        <a href="/docs/cli" class="block text-blue-600 hover:text-blue-800">CLI Commands</a>
+                        <a href="/docs/configuration" class="block text-blue-600 hover:text-blue-800">Configuration</a>
+                        <a href="/docs/api" class="block text-blue-600 hover:text-blue-800">API Reference</a>
+                    </nav>
+                </div>
+            </aside>
+            
+            <div class="lg:col-span-3">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h2 class="text-2xl font-semibold mb-4">Welcome to GitFlower Documentation</h2>
+                    <p class="text-gray-700 mb-4">
+                        GitFlower is a lean, local Git development server providing a read-only web interface 
+                        for repository visualization and management.
+                    </p>
+                    
+                    <h3 class="text-xl font-semibold mt-6 mb-3">Key Features</h3>
+                    <ul class="list-disc list-inside space-y-2 text-gray-700">
+                        <li>Repository management with organization folders</li>
+                        <li>Read-only web interface for browsing</li>
+                        <li>Security through filesystem permissions</li>
+                        <li>Local-first, privacy-focused design</li>
+                        <li>AI-friendly APIs (MCP support planned)</li>
+                    </ul>
+                    
+                    <h3 class="text-xl font-semibold mt-6 mb-3">Quick Start</h3>
+                    <div class="bg-gray-50 p-4 rounded">
+                        <pre class="text-sm"><code># Create a new repository
+gitflower create myproject.git
+
+# Start the web interface
+gitflower web
+
+# Browse to http://localhost:8747</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

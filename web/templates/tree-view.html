@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.RepoName}} - Files - GitFlower</title>
+    <link rel="stylesheet" href="/static/css/output.css">
+</head>
+<body class="bg-gray-50">
+    <nav class="bg-white shadow">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <a href="/" class="text-2xl font-bold text-gray-800">GitFlower</a>
+                <div class="space-x-4">
+                    <a href="/repos/" class="text-blue-600 hover:text-blue-800">Repositories</a>
+                    <a href="/docs/" class="text-gray-600 hover:text-gray-800">Documentation</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto px-4 py-8">
+        <div class="mb-6">
+            <nav class="text-sm">
+                <a href="/repos/{{.RepoName}}" class="text-blue-600 hover:text-blue-800">{{.RepoName}}</a>
+                <span class="text-gray-500 mx-1">/</span>
+                <span class="text-gray-700">{{.Ref}}</span>
+                {{if .Path}}
+                <span class="text-gray-500 mx-1">/</span>
+                <span class="text-gray-700">{{.Path}}</span>
+                {{end}}
+            </nav>
+        </div>
+
+        <div class="bg-white rounded-lg shadow">
+            <div class="p-4 border-b bg-gray-50">
+                <h2 class="text-lg font-semibold">Files</h2>
+            </div>
+            <table class="w-full">
+                <thead class="bg-gray-50 border-b">
+                    <tr>
+                        <th class="text-left px-4 py-2">Name</th>
+                        <th class="text-left px-4 py-2">Mode</th>
+                        <th class="text-left px-4 py-2">Size</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{if .Path}}
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="px-4 py-2">
+                            <a href="/repos/{{$.RepoName}}/tree/{{$.Ref}}/" class="text-blue-600 hover:text-blue-800">..</a>
+                        </td>
+                        <td class="px-4 py-2 text-gray-500"></td>
+                        <td class="px-4 py-2 text-gray-500"></td>
+                    </tr>
+                    {{end}}
+                    {{range .Entries}}
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="px-4 py-2">
+                            {{if .Mode.IsFile}}
+                            <a href="/repos/{{$.RepoName}}/tree/{{$.Ref}}/{{if $.Path}}{{$.Path}}/{{end}}{{.Name}}" class="text-blue-600 hover:text-blue-800">
+                                📄 {{.Name}}
+                            </a>
+                            {{else}}
+                            <a href="/repos/{{$.RepoName}}/tree/{{$.Ref}}/{{if $.Path}}{{$.Path}}/{{end}}{{.Name}}/" class="text-blue-600 hover:text-blue-800">
+                                📁 {{.Name}}/
+                            </a>
+                            {{end}}
+                        </td>
+                        <td class="px-4 py-2 text-gray-500 font-mono text-sm">{{.Mode}}</td>
+                        <td class="px-4 py-2 text-gray-500">
+                            {{if .Mode.IsFile}}{{.Size}} bytes{{else}}-{{end}}
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr>
+                        <td colspan="3" class="px-4 py-8 text-center text-gray-500">
+                            This directory is empty.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </main>
+</body>
+</html>

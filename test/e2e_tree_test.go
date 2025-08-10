@@ -25,12 +25,12 @@ func TestE2ERepos(t *testing.T) {
 
 	// Create temp directory for test repos
 	tempDir := t.TempDir()
-	
+
 	// Use the static test config
 	configPath := filepath.Join(filepath.Dir(getBinaryPath()), "..", "test", "config.yaml")
-	
+
 	// Set up environment with config path
-	env := append(os.Environ(), 
+	env := append(os.Environ(),
 		fmt.Sprintf("HOME=%s", tempDir),
 		fmt.Sprintf("GITFLOWER_CONFIG=%s", configPath))
 
@@ -212,7 +212,6 @@ func TestE2ERepos(t *testing.T) {
 		}
 	})
 
-
 	// Test warning for invalid directories
 	t.Run("InvalidDirectoryWarnings", func(t *testing.T) {
 		// Create invalid directories in test-repos
@@ -233,7 +232,7 @@ func TestE2ERepos(t *testing.T) {
 		}
 
 		// If no error, the test passes (warnings shown in stderr)
-		
+
 		// Clean up
 		os.RemoveAll(filepath.Join(testReposDir, "INVALID_NAME"))
 		os.RemoveAll(filepath.Join(testReposDir, ".hidden"))

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repositories - GitFlower</title>
+    <link rel="stylesheet" href="/static/css/output.css">
+</head>
+<body class="bg-gray-50">
+    <nav class="bg-white shadow">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <a href="/" class="text-2xl font-bold text-gray-800">GitFlower</a>
+                <div class="space-x-4">
+                    <a href="/repos/" class="text-blue-600 hover:text-blue-800">Repositories</a>
+                    <a href="/docs/" class="text-gray-600 hover:text-gray-800">Documentation</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-6">Repositories</h1>
+        
+        {{if .ScanErrors}}
+        <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6">
+            <p class="font-bold">Warnings:</p>
+            <ul class="mt-2">
+                {{range .ScanErrors}}
+                <li>{{.}}</li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {{range .Repos}}
+            <div class="bg-white p-6 rounded-lg shadow hover:shadow-lg transition-shadow">
+                <h2 class="text-xl font-semibold mb-2">
+                    <a href="/repos/{{.Path}}" class="text-blue-600 hover:text-blue-800">{{.Path}}</a>
+                </h2>
+                <p class="text-gray-600 text-sm">{{.Description}}</p>
+                <div class="mt-4 text-sm text-gray-500">
+                    <p>Size: {{.Size}}</p>
+                    <p>Last updated: {{.LastModified}}</p>
+                </div>
+            </div>
+            {{else}}
+            <p class="text-gray-600">No repositories found.</p>
+            {{end}}
+        </div>
+    </main>
+</body>
+</html>

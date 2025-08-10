@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/go-git/go-git/v6"
 	"gitflower/tree"
+	"github.com/go-git/go-git/v6"
 )
 
 func TestCreateRepository(t *testing.T) {

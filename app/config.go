@@ -14,7 +14,7 @@ import (
 
 type globalConfig struct {
 	Repos tree.Config `yaml:"repos"`
-	Web   web.Config   `yaml:"web"`
+	Web   web.Config  `yaml:"web"`
 }
 
 // load parses global flags and reads the config file

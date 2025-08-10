@@ -17,7 +17,7 @@ func TestValidateSlug(t *testing.T) {
 		{"valid with dot", "test.project", false, ""},
 		{"valid with numbers", "test123", false, ""},
 		{"valid complex", "my-project-v1.2.3", false, ""},
-		
+
 		// Invalid cases
 		{"dot only", ".", true, "cannot use special directory names"},
 		{"double dot", "..", true, "cannot use special directory names"},
@@ -55,7 +55,7 @@ func TestValidateRepoName(t *testing.T) {
 		{"valid repo name", "my-project.git", false, ""},
 		{"valid with dots", "my.project.git", false, ""},
 		{"valid with numbers", "project-123.git", false, ""},
-		
+
 		// Invalid cases
 		{"missing .git", "my-project", true, "must end with .git"},
 		{"invalid slug", "My-Project.git", true, "must contain only lowercase letters"},
@@ -88,7 +88,7 @@ func TestValidateOrgFolder(t *testing.T) {
 		{"valid folder", "work", false, ""},
 		{"valid with hyphen", "my-projects", false, ""},
 		{"valid with dot", "archived.old", false, ""},
-		
+
 		// Invalid cases
 		{"ends with .git", "work.git", true, "must not end with .git"},
 		{"invalid slug", "Work", true, "must contain only lowercase letters"},
@@ -121,7 +121,7 @@ func TestValidatePath(t *testing.T) {
 		{"simple repo", "project.git", false, ""},
 		{"repo in folder", "work/project.git", false, ""},
 		{"nested repo", "work/backend/api.git", false, ""},
-		
+
 		// Invalid cases
 		{"folder without repo", "work/project", true, "must end with .git"},
 		{"invalid folder name", "Work/project.git", true, "must contain only lowercase letters"},
@@ -166,7 +166,7 @@ func TestIsRepository(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && s[:len(substr)] == substr || 
+	return len(s) >= len(substr) && s[:len(substr)] == substr ||
 		len(s) >= len(substr) && s[len(s)-len(substr):] == substr ||
 		len(s) > len(substr) && findSubstring(s, substr)
 }
