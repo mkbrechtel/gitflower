@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gitflower"
+version = "0.1.0"
+description = "Git-based development platform: branch workflows, hooks, and a repo browser"
+license = "EUPL-1.2"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "click",
+    "pygit2",
+    "PyYAML",
+]
+
+[project.scripts]
+gitflower = "gitflower.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"gitflower.web" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not e2e'"
+markers = [
+    "e2e: browser end-to-end tests (selenium + chromium); run with `pytest -m e2e`",
+]
