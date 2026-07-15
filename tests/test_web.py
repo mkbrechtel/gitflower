@@ -86,6 +86,11 @@ def test_repo_detail_carries_graph_and_branches(client):
     page = client.get("/repos/app.git")
     assert '<svg class="graph-svg"' in page.text
     assert "git clone" in page.text
+    # commit ids link to the commit view — in the graph and in the branches table
+    data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
+    tip = data["branches"][0]
+    assert f'<a class="graph-sha" href="/repos/app.git/commit/' in page.text
+    assert f'<a href="/repos/app.git/commit/{tip["sha"]}"><code>{tip["short"]}</code></a>' in page.text
     data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
     assert [b["name"] for b in data["branches"]] == ["main"]
     assert data["graph"]["rows"] and data["graph"]["width"] > 0

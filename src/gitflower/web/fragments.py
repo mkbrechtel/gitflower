@@ -104,7 +104,9 @@ GRAPH_CSS = """
 .graph-rows { list-style: none; margin: 0; padding: 0; }
 .graph-row { display: flex; align-items: center; gap: 0.5rem; height: var(--graph-row); padding-left: var(--graph-gutter); padding-right: 0.6rem; font-size: 0.82rem; line-height: var(--graph-row); white-space: nowrap; }
 .graph-row:hover { background: var(--code-bg); }
-.graph-sha { flex: none; color: var(--fg-dim); background: none; padding: 0; }
+.graph-sha { flex: none; }
+.graph-sha code { color: var(--fg-dim); background: none; padding: 0; }
+.graph-sha:hover code { color: var(--accent); }
 .graph-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .graph-subject a { color: var(--fg); }
 .graph-when { flex: none; color: var(--fg-dim); font-size: 0.75rem; }
@@ -153,7 +155,7 @@ def _graph_svg(graph: dict, repo_url: str, tips: dict, full: bool) -> str:
         commit_url = f"{repo_url}/commit/{esc(commit['sha'])}"
         rows.append(
             f'<li class="graph-row" data-lane="{row["lane"]}" id="c-{esc(commit["short"])}">'
-            f'<code class="graph-sha">{esc(commit["short"])}</code>{chips}'
+            f'<a class="graph-sha" href="{commit_url}"><code>{esc(commit["short"])}</code></a>{chips}'
             f'<span class="graph-subject"><a href="{commit_url}">{esc(commit["subject"])}</a></span>'
             f'<span class="graph-when">{esc(commit["author"])} · {esc(commit["date"][:10])}</span>'
             "</li>"
@@ -184,7 +186,7 @@ def repo(data: dict) -> str:
         tips.setdefault(branch["sha"], []).append(branch["name"])
     branch_rows = "".join(
         f'<tr><td><a href="{url}/tree/{esc(b["name"])}/">{esc(b["name"])}</a></td>'
-        f'<td><code>{esc(b["short"])}</code></td>'
+        f'<td><a href="{url}/commit/{esc(b["sha"])}"><code>{esc(b["short"])}</code></a></td>'
         f'<td class="dim">{esc(b["date"][:10])}</td>'
         f"<td>{esc(b['subject'])}</td></tr>"
         for b in data["branches"]
@@ -326,7 +328,7 @@ def commit(data: dict) -> str:
 <dl class="meta">
 <dt>author</dt><dd>{esc(data["author"])} &lt;{esc(data["author_email"])}&gt; · {esc(data["date"])}</dd>
 {committer}
-<dt>commit</dt><dd><code>{esc(data["sha"])}</code></dd>
+<dt>commit</dt><dd><a href="{url}/commit/{esc(data["sha"])}"><code>{esc(data["sha"])}</code></a></dd>
 <dt>parents</dt><dd>{parents}</dd>
 <dt>tree</dt><dd><a href="{url}/tree/{esc(data["sha"])}/">browse the repository at this commit</a></dd>
 </dl>
