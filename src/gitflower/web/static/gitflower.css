@@ -1,0 +1,63 @@
+/* Global chrome and the theme palette. Component styles live INSIDE each
+   fragment's shadow root; only these custom properties reach through the
+   shadow boundary, so the palette is the whole shared surface. */
+
+:root {
+  --bg: #ffffff;
+  --fg: #1c2128;
+  --fg-dim: #656d76;
+  --accent: #0969da;
+  --border: #d0d7de;
+  --code-bg: #f6f8fa;
+  --diff-add: #1a7f37;
+  --diff-del: #cf222e;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", monospace;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --fg-dim: #8b949e;
+    --accent: #58a6ff;
+    --border: #30363d;
+    --code-bg: #161b22;
+    --diff-add: #3fb950;
+    --diff-del: #f85149;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.55 system-ui, sans-serif;
+}
+
+.gf-nav {
+  display: flex;
+  gap: 1.4rem;
+  align-items: center;
+  padding: 0.7rem 1.2rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.gf-nav a { color: var(--fg); text-decoration: none; }
+.gf-nav a:hover { color: var(--accent); }
+.gf-brand { font-weight: 700; }
+
+#gf-main {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 1.6rem 1.2rem 4rem;
+}
+
+#gf-main.gf-loading { opacity: 0.6; transition: opacity 0.15s; }
+
+@media (max-width: 640px) {
+  #gf-main { padding: 1rem 0.8rem 3rem; }
+}
