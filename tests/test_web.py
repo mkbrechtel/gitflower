@@ -171,6 +171,10 @@ def test_static_and_api_schema(client):
     assert js.status_code == 200 and "setHTMLUnsafe" in js.text
     schema = client.get("/api/openapi.json").json()
     assert "/repos/" in schema["paths"]
+    docs = client.get("/api")
+    assert docs.status_code == 200
+    assert CHROME in docs.text  # swagger page wears the site chrome
+    assert 'id="swagger-ui"' in docs.text and "SwaggerUIBundle" in docs.text
 
 
 def test_posts_are_rejected(client):
