@@ -11,7 +11,11 @@ from pathlib import Path
 
 import pytest
 
-SRC = Path(__file__).resolve().parent.parent / "src"
+# wherever the gitflower package under test actually lives — src/ in a dev
+# checkout, pybuild's build dir during a package build
+import gitflower
+
+SRC = Path(gitflower.__file__).resolve().parent.parent
 
 
 @pytest.fixture(scope="session", autouse=True)

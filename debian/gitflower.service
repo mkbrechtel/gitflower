@@ -1,0 +1,29 @@
+[Unit]
+Description=gitflower web UI
+Documentation=https://cute-devops.patterns.how
+After=network.target
+
+[Service]
+# The static gitflower user (created in postinst) owns /var/lib/gitflower,
+# so git's repository-ownership check holds naturally — repos are created
+# with `sudo -u gitflower gitflower create <path>`.
+User=gitflower
+Group=gitflower
+ExecStart=/usr/bin/gitflower --config /etc/gitflower/config.yaml web
+StateDirectory=gitflower
+WorkingDirectory=/var/lib/gitflower
+Restart=on-failure
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

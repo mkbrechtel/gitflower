@@ -15,6 +15,12 @@ from pygit2.enums import SortMode
 
 from gitflower.slug import is_repository, validate_repo_path, validate_slug, SlugError
 
+# NOTE: libgit2 enforces git's safe.directory ownership check — a repository
+# owned by another user will not open. The check is respected here, not
+# disabled: the packaged service runs as the static `gitflower` system user
+# that owns /var/lib/gitflower, so hosted repos are created via
+# `sudo -u gitflower gitflower create <path>` and ownership matches.
+
 MR_REF_PREFIX = "refs/gitflower/merge-requests/"
 
 

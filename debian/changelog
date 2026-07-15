@@ -1,0 +1,11 @@
+gitflower (0.1.0) unstable; urgency=medium
+
+  * Initial release: Python rewrite of gitflower (FastAPI + click).
+    - Per-repository pre-push hook engine: branch router with
+      Go-compatible glob patterns, protected-branch workflows,
+      gitflower init/install/uninstall/config.
+    - Repo hosting CLI (create, list) and web UI: repo browser with
+      commit-graph visualization, JSON/page/fragment content
+      negotiation, read-only smart-HTTP cloning, systemd service.
+
+ -- Markus Katharina Brechtel <brechtel@med.uni-frankfurt.de>  Wed, 15 Jul 2026 12:46:00 +0200

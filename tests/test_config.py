@@ -45,7 +45,10 @@ def test_unknown_workflow_rejected(tmp_path):
         cfg.load_repo_config(tmp_path)
 
 
-def test_global_config_defaults():
+def test_global_config_defaults(tmp_path, monkeypatch):
+    # a missing $GITFLOWER_CONFIG file short-circuits the fallback chain, so
+    # a real /etc/gitflower/config.yaml on the test host cannot interfere
+    monkeypatch.setenv("GITFLOWER_CONFIG", str(tmp_path / "absent.yaml"))
     loaded = cfg.load_global_config()
     assert loaded.repos.directory == "./repos/"
     assert loaded.repos.scan_depth == 3

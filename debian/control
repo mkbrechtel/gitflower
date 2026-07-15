@@ -1,0 +1,36 @@
+Source: gitflower
+Section: vcs
+Priority: optional
+Maintainer: Markus Katharina Brechtel <brechtel@med.uni-frankfurt.de>
+Build-Depends: debhelper-compat (= 13),
+               dh-sequence-python3,
+               pybuild-plugin-pyproject,
+               python3-all,
+               python3-setuptools,
+               python3-pytest <!nocheck>,
+               python3-fastapi <!nocheck>,
+               python3-click <!nocheck>,
+               python3-pygit2 <!nocheck>,
+               python3-yaml <!nocheck>,
+               python3-httpx <!nocheck>,
+               git <!nocheck>
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://cute-devops.patterns.how
+Vcs-Git: https://github.com/mkbrechtel/gitflower.git
+Vcs-Browser: https://github.com/mkbrechtel/gitflower
+
+Package: gitflower
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends}, git, adduser
+Description: git-based development platform
+ gitflower provides a local-first, git-centric development platform:
+ per-repository branch workflow enforcement via a pre-push hook engine
+ (protected branches, allow-listed branch rules, linear-history and
+ clean-tree checks) and a lightweight web UI for browsing hosted bare
+ repositories — tree, blob and commit views, a commit-graph
+ visualization, and read-only git smart-HTTP cloning.
+ .
+ The web API is also the frontend: every endpoint serves JSON, a full
+ HTML page, and an HTML fragment from the same URL through content
+ negotiation.

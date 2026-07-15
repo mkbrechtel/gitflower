@@ -1,10 +1,10 @@
+.git
 __pycache__/
 *.py[cod]
 .venv/
 dist/
 build/
 *.egg-info/
-.gitflower/
 .pybuild/
 .pytest_cache/
 debian/gitflower/
