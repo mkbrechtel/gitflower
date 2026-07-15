@@ -8,6 +8,7 @@ Every browse endpoint serves the same data three ways from one URL:
 * full HTML page  — everything else (browser navigation), or ?format=html
 """
 
+from dataclasses import asdict, is_dataclass
 from typing import Callable
 
 from fastapi import Request
@@ -29,11 +30,16 @@ def wants_json(request: Request) -> bool:
 
 def respond(
     request: Request,
-    data: dict,
+    data,
     fragment_fn: Callable[[dict], str],
     title: str,
     status: int = 200,
 ) -> Response:
+    """`data` is the route's typed response model (a dataclass instance);
+    its asdict() form is served as JSON and fed to the fragment renderer —
+    one typed contract, three representations."""
+    if is_dataclass(data):
+        data = asdict(data)
     fmt = request.query_params.get("format")
     if fmt == "json" or (fmt is None and wants_json(request)):
         return JSONResponse(data, status_code=status)

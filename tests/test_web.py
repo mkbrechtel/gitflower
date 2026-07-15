@@ -179,7 +179,5 @@ def test_static_and_api_schema(client):
 
 def test_posts_are_rejected(client):
     """The browse surface is read-only; only upload-pack accepts POST."""
-    for url in ("/", "/docs/"):
+    for url in ("/", "/docs/", "/repos/app.git"):
         assert client.post(url).status_code == 405
-    # a POST into /repos/ that is not git-upload-pack is a 404
-    assert client.post("/repos/app.git").status_code == 404
