@@ -211,8 +211,25 @@ def resolve(repo: pygit2.Repository, ref: str) -> pygit2.Commit:
     try:
         obj = repo.revparse_single(ref)
         return obj.peel(pygit2.Commit)
-    except (pygit2.GitError, KeyError):
+    except (pygit2.GitError, KeyError, ValueError):
         raise GitReadError(f"no such ref: {ref}")
+
+
+def split_ref(repo: pygit2.Repository, refpath: str) -> tuple[str, str]:
+    """Split 'work/feature/x/some/dir' into (ref, subpath).
+
+    Branch names contain slashes, so the URL grammar /tree/<ref>/<path> is
+    ambiguous — the longest prefix that resolves to a ref wins (a branch
+    always beats a same-named directory under a shorter branch)."""
+    segments = [s for s in refpath.split("/") if s]
+    for i in range(len(segments), 0, -1):
+        candidate = "/".join(segments[:i])
+        try:
+            resolve(repo, candidate)
+        except GitReadError:
+            continue
+        return candidate, "/".join(segments[i:])
+    raise GitReadError(f"no such ref: {refpath}")
 
 
 def tree_entries(repo: pygit2.Repository, ref: str, path: str = "") -> list[dict]:

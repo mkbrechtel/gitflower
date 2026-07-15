@@ -115,11 +115,14 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
         repo_or_404(repo_path)
         return await smarthttp.upload_pack(repos_dir / repo_path, request)
 
-    def _tree_or_blob(request: Request, repo_path: str, ref: str, subpath: str) -> Response:
+    def _tree_or_blob(request: Request, repo_path: str, refpath: str) -> Response:
         repo = repo_or_404(_validated(repo_path))
-        ref = ref or "HEAD"
-        wants_dir = subpath.endswith("/") or subpath == ""
-        subpath = subpath.strip("/")
+        wants_dir = refpath.endswith("/") or refpath == ""
+        try:
+            ref, subpath = gitread.split_ref(repo, refpath.strip("/")) if refpath.strip("/") else ("HEAD", "")
+        except gitread.GitReadError as exc:
+            raise HTTPException(404, str(exc))
+        wants_dir = wants_dir or subpath == ""
         try:
             if wants_dir:
                 entries = [
@@ -146,21 +149,13 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
         return respond(request, data, fragments.blob, f"{repo_path}: {subpath}")
 
     @router.get(
-        "/repos/{repo_path:path}/tree/{ref}/{subpath:path}",
+        "/repos/{repo_path:path}/tree/{refpath:path}",
         response_model=models.TreeView | models.BlobView,
-        summary="Tree listing (trailing slash) or file view; ?format=raw for bytes",
+        summary="Tree listing (trailing slash) or file view; ?format=raw for bytes. "
+        "Refs may contain slashes — the longest prefix that resolves to a ref wins.",
     )
-    def tree(request: Request, repo_path: str, ref: str, subpath: str) -> Response:
-        return _tree_or_blob(request, repo_path, ref, subpath)
-
-    @router.get(
-        "/repos/{repo_path:path}/tree/{ref}",
-        response_model=models.TreeView,
-        summary="Tree root at a ref",
-        include_in_schema=False,  # same contract as the route above
-    )
-    def tree_root(request: Request, repo_path: str, ref: str) -> Response:
-        return _tree_or_blob(request, repo_path, ref, "")
+    def tree(request: Request, repo_path: str, refpath: str) -> Response:
+        return _tree_or_blob(request, repo_path, refpath)
 
     @router.get(
         "/repos/{repo_path:path}/commit/{sha}",

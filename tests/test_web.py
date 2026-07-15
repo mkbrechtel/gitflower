@@ -29,7 +29,12 @@ def hosted(tmp_path):
     (work / "binary.bin").write_bytes(bytes(range(256)))
     git(work, "add", ".")
     git(work, "commit", "-m", "add binary")
-    git(work, "push", "origin", "main")
+    git(work, "checkout", "-b", "work/feature/thing")
+    (work / "feature.txt").write_text("feature work\n")
+    git(work, "add", ".")
+    git(work, "commit", "-m", "feature commit")
+    git(work, "checkout", "main")
+    git(work, "push", "origin", "main", "work/feature/thing")
     return root
 
 
@@ -92,7 +97,7 @@ def test_repo_detail_carries_graph_and_branches(client):
     assert f'<a class="graph-sha" href="/repos/app.git/commit/' in page.text
     assert f'<a href="/repos/app.git/commit/{tip["sha"]}"><code>{tip["short"]}</code></a>' in page.text
     data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
-    assert [b["name"] for b in data["branches"]] == ["main"]
+    assert {b["name"] for b in data["branches"]} == {"main", "work/feature/thing"}
     assert data["graph"]["rows"] and data["graph"]["width"] > 0
     assert data["clone_url"].endswith("/repos/app.git")
 
@@ -114,6 +119,26 @@ def test_tree_browsing(client):
     assert client.get("/repos/app.git/tree/main/nope/").status_code == 404
 
 
+def test_slashed_branch_names_resolve(client):
+    """Branch names contain slashes; the longest resolving prefix is the ref."""
+    data = client.get(
+        "/repos/app.git/tree/work/feature/thing/", headers={"Accept": "application/json"}
+    ).json()
+    assert data["ref"] == "work/feature/thing" and data["subpath"] == ""
+    assert "feature.txt" in {e["name"] for e in data["entries"]}
+    # a file below the slashed ref
+    blob = client.get(
+        "/repos/app.git/tree/work/feature/thing/feature.txt",
+        headers={"Accept": "application/json"},
+    ).json()
+    assert blob["ref"] == "work/feature/thing" and blob["subpath"] == "feature.txt"
+    raw = client.get("/repos/app.git/tree/work/feature/thing/feature.txt?format=raw")
+    assert raw.text == "feature work\n"
+    # an unresolvable prefix is a 404, not a directory guess
+    missing = client.get("/repos/app.git/tree/work/")
+    assert missing.status_code == 404 and "no such ref" in missing.text
+
+
 def test_blob_views(client):
     page = client.get("/repos/app.git/tree/main/file-0.txt")
     assert "content 0" in page.text
@@ -130,7 +155,7 @@ def test_blob_views(client):
 
 def test_commit_view(client):
     data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
-    sha = data["branches"][0]["sha"]
+    sha = next(b["sha"] for b in data["branches"] if b["name"] == "main")
     page = client.get(f"/repos/app.git/commit/{sha}")
     assert "add binary" in page.text and "Changes" in page.text
     assert '<details class="file"' in page.text  # per-file diff sections
