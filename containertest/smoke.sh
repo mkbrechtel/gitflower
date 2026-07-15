@@ -40,24 +40,35 @@ runuser -u gitflower -- sh -c 'cd /var/lib/gitflower && git init -q hooked && cd
 echo "hook engine OK"
 
 echo "== web service (run directly; systemd owns it on a real host)"
-runuser -u gitflower -- gitflower --config /etc/gitflower/config.yaml web &
+# a dedicated port: rootless `podman build` RUN steps can share the host
+# network, where 8747 may be a deployed gitflower answering for this one
+PORT=18747
+runuser -u gitflower -- gitflower --config /etc/gitflower/config.yaml web --addr "127.0.0.1:$PORT" >/tmp/server.log 2>&1 &
 SERVER=$!
-trap 'kill $SERVER 2>/dev/null || true' EXIT
+cleanup() {
+    status=$?
+    kill $SERVER 2>/dev/null || true
+    if [ $status -ne 0 ]; then
+        echo "== SMOKE FAILED (exit $status) — server log:"
+        cat /tmp/server.log
+    fi
+}
+trap cleanup EXIT
 i=0
-until curl -fsS -o /dev/null http://127.0.0.1:8747/; do
-    i=$((i + 1)); [ $i -lt 50 ] || { echo "server never came up"; exit 1; }
+until curl -fsS -o /dev/null http://127.0.0.1:$PORT/ 2>/dev/null; do
+    i=$((i + 1)); [ $i -lt 100 ] || { echo "server never came up"; cat /tmp/server.log; exit 1; }
     sleep 0.2
 done
 
 echo "== three representations from one URL"
-curl -fsS http://127.0.0.1:8747/repos/demo.git | grep -q '<nav class="gf-nav">'
-curl -fsS -H 'GF-Fragment: 1' http://127.0.0.1:8747/repos/demo.git | grep -qv '<nav'
-curl -fsS -H 'Accept: application/json' http://127.0.0.1:8747/repos/demo.git \
+curl -fsS http://127.0.0.1:$PORT/repos/demo.git | grep -q '<nav class="gf-nav">'
+curl -fsS -H 'GF-Fragment: 1' http://127.0.0.1:$PORT/repos/demo.git | grep -qv '<nav'
+curl -fsS -H 'Accept: application/json' http://127.0.0.1:$PORT/repos/demo.git \
     | python3 -c 'import json,sys; d = json.load(sys.stdin); assert [b["name"] for b in d["branches"]] == ["main"], d; assert d["graph"]["rows"]'
-curl -fsS 'http://127.0.0.1:8747/repos/demo.git/tree/main/README.md?format=raw' | grep -qx '# demo'
+curl -fsS "http://127.0.0.1:$PORT/repos/demo.git/tree/main/README.md?format=raw" | grep -qx '# demo'
 
 echo "== read-only smart-HTTP clone"
-git clone -q http://127.0.0.1:8747/repos/demo.git /tmp/cloned
+git clone -q http://127.0.0.1:$PORT/repos/demo.git /tmp/cloned
 grep -qx '# demo' /tmp/cloned/README.md
 cd /tmp/cloned
 if git push -q origin main 2>/dev/null; then
