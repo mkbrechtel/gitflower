@@ -128,10 +128,16 @@ def test_commit_view(client):
     sha = data["branches"][0]["sha"]
     page = client.get(f"/repos/app.git/commit/{sha}")
     assert "add binary" in page.text and "Changes" in page.text
+    assert '<details class="file"' in page.text  # per-file diff sections
+    assert "file changed" in page.text or "files changed" in page.text  # diffstat
+    assert "Binary file not shown" in page.text  # binary.bin has no patch body
     detail = client.get(
         f"/repos/app.git/commit/{sha}", headers={"Accept": "application/json"}
     ).json()
     assert detail["sha"] == sha and detail["patch"]
+    assert {f["path"] for f in detail["files"]} == {"binary.bin"}
+    assert detail["files"][0]["binary"] is True
+    assert detail["stats"]["files_changed"] == 1
     assert client.get("/repos/app.git/commit/0000000").status_code == 404
 
 

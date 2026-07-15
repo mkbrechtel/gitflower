@@ -109,10 +109,17 @@ def test_commit_detail_patch(seeded):
     sha = [b for b in tip if b["name"] == "side"][0]["sha"]
     detail = gitread.commit_detail(repo, sha)
     assert "+side.txt" in detail["patch"]
+    (added,) = detail["files"]
+    assert added["path"] == "side.txt" and added["status"] == "A"
+    assert added["additions"] == 1 and added["deletions"] == 0
+    assert not added["binary"] and "+side.txt" in added["patch"]
+    assert detail["stats"] == {"files_changed": 1, "additions": 1, "deletions": 0}
+    assert detail["committer"] == detail["author"]
     root = gitread.commits(repo)[-1]
     root_detail = gitread.commit_detail(repo, root["sha"])
     assert root_detail["parents"] == []
     assert "+linear-0.txt" in root_detail["patch"]  # diff against the empty tree
+    assert [f["status"] for f in root_detail["files"]] == ["A"]
 
 
 def test_open_repo_validates_path(repos_dir):

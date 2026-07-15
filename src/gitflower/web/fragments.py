@@ -265,7 +265,30 @@ DIFF_CSS = """
 .patch .del { color: var(--diff-del); }
 .patch .hunk { color: var(--accent); }
 .patch .head { color: var(--fg-dim); }
+.meta { border: 1px solid var(--border); border-radius: 6px; padding: 0.7rem 1rem; font-size: 0.88rem; display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; }
+.meta dt { color: var(--fg-dim); margin: 0; }
+.meta dd { margin: 0; overflow-wrap: anywhere; }
+.stat-add { color: var(--diff-add); }
+.stat-del { color: var(--diff-del); }
+.filelist { list-style: none; margin: 0.6rem 0; padding: 0; font-size: 0.88rem; }
+.filelist li { display: flex; gap: 0.7rem; padding: 0.15rem 0; font-family: var(--mono); }
+.filelist .counts { margin-left: auto; white-space: nowrap; }
+.status { flex: none; width: 1.2em; text-align: center; font-weight: 700; border-radius: 4px; font-size: 0.8em; line-height: 1.6; }
+.status-A { color: var(--diff-add); }
+.status-D { color: var(--diff-del); }
+.status-M, .status-R { color: var(--accent); }
+details.file { border: 1px solid var(--border); border-radius: 6px; margin: 0.8rem 0; overflow: hidden; }
+details.file > summary { cursor: pointer; padding: 0.5rem 0.9rem; background: var(--code-bg); font-family: var(--mono); font-size: 0.85rem; display: flex; gap: 0.7rem; align-items: baseline; flex-wrap: wrap; }
+details.file > summary .counts { margin-left: auto; }
+details.file > pre { margin: 0; border: none; border-radius: 0; }
 """
+
+
+def _counts(additions: int, deletions: int) -> str:
+    return (
+        f'<span class="counts"><span class="stat-add">+{additions}</span> '
+        f'<span class="stat-del">−{deletions}</span></span>'
+    )
 
 
 def _colorize_patch(patch: str) -> str:
@@ -293,22 +316,77 @@ def commit(data: dict) -> str:
         )
         or '<span class="dim">none (initial commit)</span>'
     )
-    patch = (
-        f'<pre class="patch">{_colorize_patch(data["patch"])}</pre>'
-        if data["patch"]
+    committer = ""
+    if (data["committer"], data["committer_email"]) != (data["author"], data["author_email"]):
+        committer = (
+            "<dt>committer</dt>"
+            f'<dd>{esc(data["committer"])} &lt;{esc(data["committer_email"])}&gt;</dd>'
+        )
+    meta = f"""
+<dl class="meta">
+<dt>author</dt><dd>{esc(data["author"])} &lt;{esc(data["author_email"])}&gt; · {esc(data["date"])}</dd>
+{committer}
+<dt>commit</dt><dd><code>{esc(data["sha"])}</code></dd>
+<dt>parents</dt><dd>{parents}</dd>
+<dt>tree</dt><dd><a href="{url}/tree/{esc(data["sha"])}/">browse the repository at this commit</a></dd>
+</dl>
+"""
+    # the message body beyond the subject line, if there is one
+    body_text = data["message"].strip()
+    body_text = body_text[len(data["subject"]):].strip() if body_text.startswith(data["subject"]) else body_text
+    message = f"<pre>{esc(body_text)}</pre>" if body_text else ""
+
+    stats = data["stats"]
+    filelist = "".join(
+        f'<li><span class="status status-{esc(f["status"])}">{esc(f["status"])}</span>'
+        f'<a href="#f-{i}">{_file_label(f)}</a>{_counts(f["additions"], f["deletions"])}</li>'
+        for i, f in enumerate(data["files"])
+    )
+    sections = "".join(_file_section(url, data["sha"], i, f) for i, f in enumerate(data["files"]))
+    changes = (
+        f"""
+<p class="dim">{stats["files_changed"]} file{"s" if stats["files_changed"] != 1 else ""} changed,
+<span class="stat-add">+{stats["additions"]}</span> <span class="stat-del">−{stats["deletions"]}</span></p>
+<ul class="filelist">{filelist}</ul>
+{sections}"""
+        if data["files"]
         else '<p class="empty">No changes to display.</p>'
     )
     body = f"""
 {_crumbs(("repos", "/repos/"), (data["path"], url), (data["short"], None))}
 <h1>{esc(data["subject"])}</h1>
-<p class="dim">{esc(data["author"])} &lt;{esc(data["author_email"])}&gt; · {esc(data["date"])}</p>
-<p><code>{esc(data["sha"])}</code> · parents: {parents} ·
-<a href="{url}/tree/{esc(data["sha"])}/">browse tree</a></p>
-<pre>{esc(data["message"].strip())}</pre>
+{meta}
+{message}
 <h2>Changes</h2>
-{patch}
+{changes}
 """
     return view(BASE_CSS + DIFF_CSS, body)
+
+
+def _file_label(f: dict) -> str:
+    if f["status"] == "R":
+        return f"{esc(f['old_path'])} → {esc(f['path'])}"
+    return esc(f["path"] if f["status"] != "D" else f["old_path"])
+
+
+def _file_section(url: str, sha: str, i: int, f: dict) -> str:
+    if f["binary"]:
+        content = '<pre><span class="dim">Binary file not shown.</span></pre>'
+    elif f["patch"]:
+        content = f'<pre class="patch">{_colorize_patch(f["patch"])}</pre>'
+    else:
+        content = '<pre><span class="dim">No textual changes.</span></pre>'
+    file_link = (
+        f' <a href="{url}/tree/{esc(sha)}/{esc(f["path"])}">view file</a>'
+        if f["status"] != "D"
+        else ""
+    )
+    return f"""
+<details class="file" id="f-{i}" open>
+<summary><span class="status status-{esc(f["status"])}">{esc(f["status"])}</span>
+{_file_label(f)}{_counts(f["additions"], f["deletions"])}{file_link}</summary>
+{content}
+</details>"""
 
 
 def docs(data: dict) -> str:

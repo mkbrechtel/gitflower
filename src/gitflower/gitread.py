@@ -265,11 +265,38 @@ def commit_detail(repo: pygit2.Repository, sha: str) -> dict:
         diff = repo.diff(commit.parents[0], commit)
     else:
         diff = commit.tree.diff_to_tree(swap=True)
+    diff.find_similar()  # detect renames so they show as R, not delete+add
+
+    files = []
+    for patch in diff:
+        delta = patch.delta
+        _context, additions, deletions = patch.line_stats
+        files.append(
+            {
+                "path": delta.new_file.path,
+                "old_path": delta.old_file.path,
+                "status": delta.status_char(),  # A/M/D/R/…
+                "additions": additions,
+                "deletions": deletions,
+                "binary": bool(delta.flags & pygit2.enums.DiffFlag.BINARY),
+                "patch": "" if delta.flags & pygit2.enums.DiffFlag.BINARY else (patch.text or ""),
+            }
+        )
+    stats = diff.stats
+
     detail = _commit_dict(commit)
     detail.update(
         {
             "message": commit.message,
             "author_email": commit.author.email,
+            "committer": commit.committer.name,
+            "committer_email": commit.committer.email,
+            "files": files,
+            "stats": {
+                "files_changed": stats.files_changed,
+                "additions": stats.insertions,
+                "deletions": stats.deletions,
+            },
             "patch": diff.patch or "",
         }
     )
