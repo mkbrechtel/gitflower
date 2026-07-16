@@ -13,6 +13,7 @@ from pathlib import Path
 import pygit2
 from pygit2.enums import SortMode
 
+from gitflower import mergerows
 from gitflower.slug import is_repository, validate_repo_path, validate_slug, SlugError
 
 # NOTE: libgit2 enforces git's safe.directory ownership check — a repository
@@ -276,10 +277,14 @@ def blob(repo: pygit2.Repository, ref: str, path: str) -> dict:
     }
 
 
-def commit_detail(repo: pygit2.Repository, sha: str) -> dict:
+def commit_detail(repo: pygit2.Repository, sha: str, parent: int | None = None) -> dict:
+    """Commit metadata + the diff against one parent (1-based `parent`,
+    default the first). A merge commit has one such diff per parent."""
     commit = resolve(repo, sha)
+    if parent is not None and not 1 <= parent <= len(commit.parents):
+        raise GitReadError(f"no such parent: {parent}")
     if commit.parents:
-        diff = repo.diff(commit.parents[0], commit)
+        diff = repo.diff(commit.parents[(parent or 1) - 1], commit)
     else:
         diff = commit.tree.diff_to_tree(swap=True)
     diff.find_similar()  # detect renames so they show as R, not delete+add
@@ -308,6 +313,7 @@ def commit_detail(repo: pygit2.Repository, sha: str) -> dict:
             "author_email": commit.author.email,
             "committer": commit.committer.name,
             "committer_email": commit.committer.email,
+            "diff_parent": parent or 1,
             "files": files,
             "stats": {
                 "files_changed": stats.files_changed,
@@ -315,6 +321,112 @@ def commit_detail(repo: pygit2.Repository, sha: str) -> dict:
                 "deletions": stats.deletions,
             },
             "patch": diff.patch or "",
+        }
+    )
+    return detail
+
+
+def _patch_hunks(patch: pygit2.Patch) -> list[dict]:
+    """A patch's hunks in the shape mergerows.build expects."""
+    hunks = []
+    for hunk in patch.hunks:
+        lines = [
+            {
+                "origin": line.origin,
+                "old": line.old_lineno,
+                "new": line.new_lineno,
+                "text": line.content.rstrip("\n"),
+            }
+            for line in hunk.lines
+            if line.origin in "+-"
+        ]
+        hunks.append({"new_start": hunk.new_start, "new_lines": hunk.new_lines, "lines": lines})
+    return hunks
+
+
+def merge_detail(repo: pygit2.Repository, sha: str, full: bool = False) -> dict:
+    """A merge commit's side-by-side data: one diff per parent, and per file
+    the aligned multi-column rows (mergerows) against the plain result."""
+    commit = resolve(repo, sha)
+    parents = list(commit.parents)
+    if len(parents) < 2:
+        raise GitReadError(f"not a merge commit: {sha}")
+    diffs = []
+    for p in parents:
+        diff = repo.diff(p, commit, context_lines=0)
+        diff.find_similar()
+        diffs.append(diff)
+
+    per_file: dict[str, list] = {}  # result path -> one patch (or None) per parent
+    for i, diff in enumerate(diffs):
+        for patch in diff:
+            entry = per_file.setdefault(patch.delta.new_file.path, [None] * len(parents))
+            entry[i] = patch
+
+    files = []
+    for path in sorted(per_file):
+        patches = per_file[path]
+        binary = any(
+            p is not None and p.delta.flags & pygit2.enums.DiffFlag.BINARY for p in patches
+        )
+        result_lines: list[str] = []
+        try:
+            obj = commit.tree[path]
+            if isinstance(obj, pygit2.Blob):
+                if obj.is_binary:
+                    binary = True
+                elif not binary:
+                    result_lines = obj.data.decode("utf-8", errors="replace").splitlines()
+        except KeyError:
+            pass  # file absent in the result: the merge deleted it — only-rows
+        statuses, old_paths, counts, hunks = [], [], [], []
+        for p in patches:
+            if p is None:  # identical to this parent: every cell is `same`
+                statuses.append("=")
+                old_paths.append(path)
+                counts.append({"additions": 0, "deletions": 0})
+                hunks.append([])
+            else:
+                statuses.append(p.delta.status_char())
+                old_paths.append(p.delta.old_file.path)
+                _context, additions, deletions = p.line_stats
+                counts.append({"additions": additions, "deletions": deletions})
+                hunks.append([] if binary else _patch_hunks(p))
+        laid_out = (
+            {"rows": [], "truncated": False}
+            if binary
+            else mergerows.build(result_lines, hunks, full=full)
+        )
+        files.append(
+            {
+                "path": path,
+                "old_paths": old_paths,
+                "statuses": statuses,
+                "parent_counts": counts,
+                "binary": binary,
+                "truncated": laid_out["truncated"],
+                "rows": laid_out["rows"],
+            }
+        )
+
+    detail = _commit_dict(commit)
+    detail.update(
+        {
+            "message": commit.message,
+            "author_email": commit.author.email,
+            "committer": commit.committer.name,
+            "committer_email": commit.committer.email,
+            "parent_commits": [_commit_dict(p) for p in parents],
+            "parent_stats": [
+                {
+                    "files_changed": d.stats.files_changed,
+                    "additions": d.stats.insertions,
+                    "deletions": d.stats.deletions,
+                }
+                for d in diffs
+            ],
+            "files": files,
+            "full": full,
         }
     )
     return detail

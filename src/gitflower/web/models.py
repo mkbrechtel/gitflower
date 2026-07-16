@@ -159,6 +159,72 @@ class CommitDetail:
     stats: DiffStats
     patch: str
     path: str
+    diff_parent: int = 1  # which parent (1-based) the diff is against
+
+
+@dataclass
+class LineCounts:
+    additions: int
+    deletions: int
+
+
+@dataclass
+class MergeCell:
+    """One parent's relation to a result line: `same` (identical), `changed`
+    (cell carries the parent's own text), `absent` (no counterpart), or
+    `removed` (a parent line the result dropped — `only` rows)."""
+
+    status: str
+    no: int | None = None
+    text: str | None = None
+
+
+@dataclass
+class MergeRow:
+    """One aligned row of the side-by-side view. kind `line` carries the
+    plain result line plus one cell per parent; `only` is parent-only content
+    the result dropped; `fold` is a collapsed run of all-same rows.
+    `merge_authored` marks rows matching NO parent — the merger's own work."""
+
+    kind: str
+    cells: list[MergeCell] = field(default_factory=list)
+    result_no: int | None = None
+    result_text: str | None = None
+    merge_authored: bool = False
+    count: int | None = None
+    start: int | None = None
+    end: int | None = None
+
+
+@dataclass
+class MergeFile:
+    path: str
+    old_paths: list[str]  # per parent (renames may differ per side)
+    statuses: list[str]  # per parent: A/M/D/R/… or "=" (unchanged vs it)
+    parent_counts: list[LineCounts]
+    binary: bool
+    truncated: bool
+    rows: list[MergeRow]
+
+
+@dataclass
+class MergeDetail:
+    """A merge commit's side-by-side view: N parents, one resulting tree."""
+
+    sha: str
+    short: str
+    parents: list[Commit]
+    author: str
+    author_email: str
+    committer: str
+    committer_email: str
+    date: str
+    subject: str
+    message: str
+    path: str
+    parent_stats: list[DiffStats]
+    files: list[MergeFile]
+    full: bool
 
 
 @dataclass

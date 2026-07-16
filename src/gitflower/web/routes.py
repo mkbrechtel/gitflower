@@ -159,13 +159,19 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
 
     @router.get(
         "/repos/{repo_path:path}/commit/{sha}",
-        response_model=models.CommitDetail,
-        summary="Commit detail: metadata, diffstat, per-file diffs",
+        response_model=models.CommitDetail | models.MergeDetail,
+        summary="Commit detail: metadata, diffstat, per-file diffs. A merge "
+        "commit defaults to the side-by-side per-parent view (?full=1 unfolds "
+        "unchanged runs); ?parent=N selects the plain diff against one parent.",
     )
-    def commit(request: Request, repo_path: str, sha: str) -> Response:
+    def commit(
+        request: Request, repo_path: str, sha: str, parent: int | None = None, full: bool = False
+    ) -> Response:
         repo = repo_or_404(_validated(repo_path))
         try:
-            detail = gitread.commit_detail(repo, sha)
+            if parent is None and len(gitread.resolve(repo, sha).parents) > 1:
+                return _merge_view(request, repo, repo_path, sha, full)
+            detail = gitread.commit_detail(repo, sha, parent)
         except gitread.GitReadError as exc:
             raise HTTPException(404, str(exc))
         data = models.CommitDetail(
@@ -183,8 +189,54 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
             stats=models.DiffStats(**detail["stats"]),
             patch=detail["patch"],
             path=repo_path,
+            diff_parent=detail["diff_parent"],
         )
         return respond(request, data, fragments.commit, f"{repo_path}: {detail['short']}")
+
+    def _merge_view(
+        request: Request, repo, repo_path: str, sha: str, full: bool
+    ) -> Response:
+        detail = gitread.merge_detail(repo, sha, full=full)
+        data = models.MergeDetail(
+            sha=detail["sha"],
+            short=detail["short"],
+            parents=[models.Commit(**p) for p in detail["parent_commits"]],
+            author=detail["author"],
+            author_email=detail["author_email"],
+            committer=detail["committer"],
+            committer_email=detail["committer_email"],
+            date=detail["date"],
+            subject=detail["subject"],
+            message=detail["message"],
+            path=repo_path,
+            parent_stats=[models.DiffStats(**s) for s in detail["parent_stats"]],
+            files=[
+                models.MergeFile(
+                    path=f["path"],
+                    old_paths=f["old_paths"],
+                    statuses=f["statuses"],
+                    parent_counts=[models.LineCounts(**c) for c in f["parent_counts"]],
+                    binary=f["binary"],
+                    truncated=f["truncated"],
+                    rows=[
+                        models.MergeRow(
+                            kind=r["kind"],
+                            cells=[models.MergeCell(**c) for c in r["cells"]],
+                            result_no=r["result_no"],
+                            result_text=r["result_text"],
+                            merge_authored=r["merge_authored"],
+                            count=r.get("count"),
+                            start=r.get("start"),
+                            end=r.get("end"),
+                        )
+                        for r in f["rows"]
+                    ],
+                )
+                for f in detail["files"]
+            ],
+            full=full,
+        )
+        return respond(request, data, fragments.merge, f"{repo_path}: {detail['short']}")
 
     @router.get(
         "/repos/{rest:path}",

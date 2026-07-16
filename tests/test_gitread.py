@@ -125,3 +125,161 @@ def test_commit_detail_patch(seeded):
 def test_open_repo_validates_path(repos_dir):
     with pytest.raises(Exception):
         gitread.open_repo(repos_dir, "../escape.git")
+
+
+# ---------------------------------------------------------- merge detail
+
+BASE_PY = "import os\n\n# TODO drop this\ndef fetch(url):\n    r = get(url, timeout=1)\n    return r\n"
+P1_PY = "import os\n\n# TODO drop this\ndef fetch(url):\n    r = get(url, timeout=10)\n    return r\n\ndef old_helper():\n    return legacy()\n"
+P2_PY = "import os\nimport logging\n\n# TODO drop this\ndef fetch(url):\n    logging.debug(url)\n    r = get(url, timeout=60)\n    return r\n"
+RESOLVED_PY = "import os\nimport logging\n\ndef fetch(url):\n    logging.debug(url)\n    retry = True\n    r = get(url, timeout=30)\n    return r\n"
+
+
+@pytest.fixture
+def merged(repos_dir, tmp_path):
+    """app.git with a hand-resolved merge exercising the full taxonomy,
+    plus a second merge whose diff against parent 2 is empty."""
+    work = tmp_path / "mseed"
+    git(tmp_path, "clone", str(repos_dir / "app.git"), str(work))
+    git(work, "checkout", "-b", "main")
+    (work / "app.py").write_text(BASE_PY)
+    (work / "common.txt").write_text("shared\n")
+    git(work, "add", ".")
+    git(work, "commit", "-m", "base")
+    git(work, "checkout", "-b", "feature")
+    (work / "app.py").write_text(P2_PY)
+    (work / "feature.txt").write_text("feature\n")
+    git(work, "add", ".")
+    git(work, "commit", "-m", "logging work")
+    git(work, "checkout", "main")
+    (work / "app.py").write_text(P1_PY)
+    git(work, "add", ".")
+    git(work, "commit", "-m", "timeout tweak")
+    # a genuine conflict, resolved by hand to content matching NEITHER side;
+    # the resolution also drops common.txt, which both parents carried
+    assert git(work, "merge", "feature", check=False).returncode != 0
+    (work / "app.py").write_text(RESOLVED_PY)
+    git(work, "add", "app.py")
+    git(work, "rm", "-q", "common.txt")
+    git(work, "commit", "-m", "merge feature")
+    # …and a merge that takes one side wholesale (empty diff vs parent 2)
+    git(work, "checkout", "-b", "topic")
+    (work / "topic.txt").write_text("topic\n")
+    git(work, "add", ".")
+    git(work, "commit", "-m", "topic work")
+    git(work, "checkout", "main")
+    git(work, "merge", "--no-ff", "topic", "-m", "take topic")
+    git(work, "push", "origin", "main", "feature")
+    return repos_dir
+
+
+def _find(repo, subject):
+    return next(c for c in gitread.commits(repo) if c["subject"] == subject)
+
+
+def test_merge_detail_full_taxonomy(merged):
+    repo = gitread.open_repo(merged, "app.git")
+    detail = gitread.merge_detail(repo, _find(repo, "merge feature")["sha"])
+    assert len(detail["parent_commits"]) == 2
+    assert {p["subject"] for p in detail["parent_commits"]} == {"timeout tweak", "logging work"}
+    files = {f["path"]: f for f in detail["files"]}
+    assert set(files) == {"app.py", "common.txt", "feature.txt"}
+
+    # taken wholesale from one side: A vs the parent lacking it, = vs its source
+    assert files["feature.txt"]["statuses"] == ["A", "="]
+    assert not any(r["merge_authored"] for r in files["feature.txt"]["rows"])
+
+    # deleted by the merge although both parents had it
+    assert files["common.txt"]["statuses"] == ["D", "D"]
+    (gone,) = files["common.txt"]["rows"]
+    assert gone["kind"] == "only" and gone["merge_authored"]
+    assert [c["status"] for c in gone["cells"]] == ["removed", "removed"]
+
+    app = files["app.py"]
+    assert app["statuses"] == ["M", "M"]
+    rows = app["rows"]
+
+    def line(text):
+        return next(r for r in rows if r["result_text"] == text)
+
+    # taken from parent 2's side: matches a parent, not merge-authored
+    taken = line("import logging")
+    assert [c["status"] for c in taken["cells"]] == ["absent", "same"]
+    assert not taken["merge_authored"]
+    # inserted by the merge: in neither parent
+    added = line("    retry = True")
+    assert [c["status"] for c in added["cells"]] == ["absent", "absent"]
+    assert added["merge_authored"]
+    # hand-resolved: both parents' own versions on the row
+    resolved = line("    r = get(url, timeout=30)")
+    assert [c["text"] for c in resolved["cells"]] == [
+        "    r = get(url, timeout=10)",
+        "    r = get(url, timeout=60)",
+    ]
+    assert resolved["merge_authored"]
+    # removed by the merge: ONE row although both parents carried the line
+    todos = [r for r in rows if r["kind"] == "only" and "TODO" in (r["cells"][0]["text"] or "")]
+    assert len(todos) == 1 and todos[0]["merge_authored"]
+    # removed from one side only: taking the other side is not merge-authored
+    helper = next(r for r in rows if "old_helper" in (r["cells"][0]["text"] or ""))
+    assert [c["status"] for c in helper["cells"]] == ["removed", "absent"]
+    assert not helper["merge_authored"]
+    # per-parent stats both non-empty for this hand-resolved merge
+    assert all(s["files_changed"] for s in detail["parent_stats"])
+
+
+def test_merge_taking_one_side_reports_empty_parent_diff(merged):
+    repo = gitread.open_repo(merged, "app.git")
+    detail = gitread.merge_detail(repo, _find(repo, "take topic")["sha"])
+    assert detail["parent_stats"][1] == {"files_changed": 0, "additions": 0, "deletions": 0}
+    (topic,) = detail["files"]
+    assert topic["path"] == "topic.txt" and topic["statuses"] == ["A", "="]
+
+
+def test_merge_detail_rejects_non_merges(merged):
+    repo = gitread.open_repo(merged, "app.git")
+    with pytest.raises(gitread.GitReadError, match="not a merge commit"):
+        gitread.merge_detail(repo, _find(repo, "base")["sha"])
+
+
+def test_commit_detail_against_chosen_parent(merged):
+    repo = gitread.open_repo(merged, "app.git")
+    sha = _find(repo, "merge feature")["sha"]
+    vs1 = gitread.commit_detail(repo, sha, parent=1)
+    assert vs1["diff_parent"] == 1
+    assert {f["path"] for f in vs1["files"]} == {"app.py", "common.txt", "feature.txt"}
+    vs2 = gitread.commit_detail(repo, sha, parent=2)
+    assert vs2["diff_parent"] == 2
+    assert {f["path"] for f in vs2["files"]} == {"app.py", "common.txt"}
+    assert gitread.commit_detail(repo, sha)["diff_parent"] == 1  # default: parent 1
+    with pytest.raises(gitread.GitReadError, match="no such parent: 3"):
+        gitread.commit_detail(repo, sha, parent=3)
+    with pytest.raises(gitread.GitReadError, match="no such parent: 2"):
+        gitread.commit_detail(repo, _find(repo, "base")["sha"], parent=2)
+
+
+def test_octopus_merge_gets_a_column_per_parent(merged, tmp_path):
+    work = tmp_path / "octo"
+    git(tmp_path, "clone", str(merged / "org/team/lib.git"), str(work))
+    git(work, "checkout", "-b", "main")
+    (work / "base.txt").write_text("base\n")
+    git(work, "add", ".")
+    git(work, "commit", "-m", "base")
+    for branch in ("b1", "b2"):
+        git(work, "checkout", "-b", branch, "main")
+        (work / f"{branch}.txt").write_text(f"{branch}\n")
+        git(work, "add", ".")
+        git(work, "commit", "-m", f"{branch} work")
+    git(work, "checkout", "main")
+    git(work, "merge", "--no-ff", "b1", "b2", "-m", "octopus")
+    git(work, "push", "origin", "main")
+
+    repo = gitread.open_repo(merged, "org/team/lib.git")
+    detail = gitread.merge_detail(repo, _find(repo, "octopus")["sha"])
+    assert len(detail["parent_commits"]) == 3
+    files = {f["path"]: f for f in detail["files"]}
+    assert files["b1.txt"]["statuses"] == ["A", "=", "A"]
+    assert files["b2.txt"]["statuses"] == ["A", "A", "="]
+    (row,) = files["b1.txt"]["rows"]
+    assert [c["status"] for c in row["cells"]] == ["absent", "same", "absent"]
+    assert not row["merge_authored"]  # b1's side was taken; nothing merge-authored
