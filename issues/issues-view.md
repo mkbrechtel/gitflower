@@ -12,7 +12,7 @@ gitflower gets a per-repo issues view. Issues are plain markdown files in the re
 
 **Location.** Issue files live under `issues/` by default. The directory is configurable per repository via git config.
 
-**Identity.** An issue is identified by its file path. Renames are tracked — moving an issue into `issues/archive/` or into a category subfolder keeps its identity and history (rename detection, as `git log --follow` does).
+**Identity.** An issue is identified by an `id: <uuid>` in its frontmatter — the one frontmatter field gitflower defines. The id keeps identity stable across moves (archiving to `issues/archive/`, categorizing into subfolders), edits, and branches; the issue editor stamps it on filing. A file without an id falls back to path identity, with only exact renames (unchanged blob OID) tracked across moves.
 
 **How issues enter the repo.** One issue per branch: filing an issue creates a branch carrying the new issue file, and merging that branch files the issue into the target. The web frontend gets an issue editor that does exactly this. The same flow serves QA (file issues against a QA branch; developers pull that branch and resolve them) and collaborating AI agents.
 
@@ -22,7 +22,7 @@ gitflower gets a per-repo issues view. Issues are plain markdown files in the re
 
 ## Index
 
-Reading issue state live means scanning trees across many branches and running rename detection per issue — too slow to do on every page load, and pygit2 offers no `--follow`. gitflower therefore maintains a derived index under a dedicated ref namespace (e.g. `refs/gitflower/issues`): per branch, the issue paths, blob OIDs, parsed frontmatter, and resolved rename chains. The index is a cache, never the source of truth — it can be deleted and rebuilt from the trees at any time, and is updated incrementally (post-receive, or lazily when a tip moved since the last indexing).
+Reading issue state live means scanning trees and parsing frontmatter across many branches — too slow to do on every page load. gitflower therefore maintains a derived index under a dedicated ref namespace (e.g. `refs/gitflower/issues`): per branch, the issue ids, paths, blob OIDs, and parsed frontmatter. The index is a cache, never the source of truth — it can be deleted and rebuilt from the trees at any time, and is updated incrementally (post-receive, or lazily when a tip moved since the last indexing).
 
 ## Querying
 
@@ -35,7 +35,7 @@ Endpoints follow the existing pattern (same URL serves page, fragment, and JSON)
 ## Tasks
 
 - [ ] Spec the index ref format (`refs/gitflower/issues`) and its incremental update
-- [ ] Rename tracking in the indexer (pygit2 `find_similar` walk)
+- [ ] Id-based identity in the indexer; duplicate-id detection; path fallback for id-less files
 - [ ] Per-repo git config keys: issues directory, branch patterns
 - [ ] `gitread` support: union/classification of issue files across tips
 - [ ] JMESPath filtering over indexed frontmatter (`python3-jmespath`)
@@ -47,7 +47,11 @@ Endpoints follow the existing pattern (same URL serves page, fragment, and JSON)
 
 ## Why an index, and why prior art avoided in-tree files
 
-Tools like git-bug and git-appraise store issues as structured objects in their own ref namespace instead of as files in the tree — likely because in-tree files have no cheap query path: every listing is a multi-branch tree scan and every history view needs rename detection. gitflower keeps the files (human-editable, mergeable, reviewable in MRs) and adds the missing piece as a derived index in refs, rather than moving the truth out of the tree.
+Tools like git-bug and git-appraise store issues as structured objects in their own ref namespace instead of as files in the tree — likely because in-tree files have no cheap query path: every listing is a multi-branch tree scan with frontmatter parsing. gitflower keeps the files (human-editable, mergeable, reviewable in MRs) and adds the missing piece as a derived index in refs, rather than moving the truth out of the tree.
+
+## Rename detection rejected for identity
+
+Identity via git rename detection (`git log --follow` semantics) was considered and rejected. Exact renames are reliable, but move+edit in one commit breaks the chain silently below the similarity threshold, results depend on diff config and rename limits, and issue files created from a template are similar enough to be mispaired. Above all, rename detection walks a single history and cannot connect the same issue moved to different paths on different branches. A frontmatter uuid has none of these problems and costs nothing in the editor-driven filing flow.
 
 ## No issue schema
 
