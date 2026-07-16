@@ -7,51 +7,81 @@ created: 2026-07-16
 
 # Issues view — in-tree issues across branches
 
-gitflower gets a per-repo issues view. Issues are plain markdown files in the repository tree — free-format, with frontmatter entirely project-defined; gitflower prescribes no fields. The view shows the issues of a repo across its branches, because an issue file can be open on `main`, edited on one work branch, and resolved or archived on another, all at once. The feature joins gitflower's two lines: the web UI browses the issues, and the hooks engine guards their invariants.
+gitflower gets a per-repo issues view. Issues are plain markdown files in the repository tree — free-format, with a single gitflower-defined frontmatter field: `id`. Everything else in the frontmatter is project-defined. The view shows the issues of a repo across its branches, because an issue file can be open on `main`, edited on one work branch, and resolved or archived on another, all at once. The feature joins gitflower's two lines: the web UI browses the issues, and the hooks engine guards their invariants.
 
 ## Model
 
 **Location.** Issue files live under `issues/` by default. The directory is configurable per repository via git config.
 
-**Identity.** The issue's unique, stable identity is the open question that shapes the whole feature: where identity lives decides what gitflower must index, enforce, and standardize. The candidates are collected and evaluated in [Identity options](#identity-options); everything else in this issue is written to work with any of them.
+**Identity.** An issue is identified by the `id: <uuid>` in its frontmatter, stamped by the issue editor on filing. The id survives every file operation — moves (archiving to `issues/archive/`, categorizing into subfolders), edits, move-and-edit in one commit, basename renames — and connects the issue's versions across branches by field equality. A file without an id falls back to path identity, with only exact renames (unchanged blob OID) tracked across moves.
+
+**Id integrity.** The `issue-tracker` workflow guards the id at push time: a tree must not contain two issue files with the same id, and a commit must not change an existing issue's id. `gitflower issues fsck` detects duplicates across branches (independently filed twins) and orphaned files.
 
 **Display.** An issue's display title is its frontmatter `title` if present, else its first markdown heading, else its filename.
 
-**Versions.** An issue's version is its blob OID. Its history is the set of transitions: commit C introduces version v when the issue's blob is v at C and at none of C's parents. The same version can be introduced independently on several branches, and each transition knows the version at the parent commits — transitions form a version DAG, with issue edits diverging and merging just like commits. Version continuity across file moves relies on blob-exact renames; the `issue-tracker` workflow enforces that moves are blob-exact and never combined with an edit in one commit, making lineage sound by construction for every identity option.
+**Versions.** An issue's version is its blob OID. Its history is the set of transitions: commit C introduces version v when the issue's blob is v at C and at none of C's parents. The same version can be introduced independently on several branches, and each transition knows the version at the parent commits — transitions form a version DAG, with issue edits diverging and merging just like commits. Versions group into an issue by their id, so continuity needs no move discipline.
 
-**How issues enter the repo.** One issue per branch: filing an issue creates a branch carrying the new issue file, and merging that branch files the issue into the target. The web frontend gets an issue editor that does exactly this. The same flow serves QA (file issues against a QA branch; developers pull that branch and resolve them) and collaborating AI agents.
+**How issues enter the repo.** One issue per branch: filing an issue creates a branch carrying the new issue file with a freshly stamped id, and merging that branch files the issue into the target. The web frontend gets an issue editor that does exactly this. The same flow serves QA (file issues against a QA branch; developers pull that branch and resolve them) and collaborating AI agents.
 
 **Cross-branch state.** The issue set is the union across the configured branch tips. Each divergent branch's issues are classified against the merge-base with the default branch — added, modified, deleted, or moved — by pure OID and path comparison; content diffs are computed only on demand. Branches whose issues-directory tree OID equals the default branch's are skipped outright.
 
 **Branch selection.** Which branches feed the view is configurable per repository as ref patterns (e.g. `main`, `work/*`, `qa/*`), with all local branches as the default.
 
-## Identity options
+## Implementation
 
-What identity must provide: a permanent reference that survives moves, edits, and branch divergence; a way to write it down (URLs, cross-references from commits and other issues); and uniqueness within the repo. The options differ in where the identity lives — blob content, tree path, ref namespace, or history — and that placement determines what git can answer natively versus what gitflower must build and enforce.
+The id → oid map — which blob OIDs carry which issue id — is the one relation git cannot answer itself, at any speed: ids live inside blob content, and git indexes names and hashes, never content. This map is the core structure gitflower builds and owns. Every other relation (oid → introducing commits, containment, classification) git computes fast and is queried live.
 
-### A. Frontmatter uuid
+**History walks are git subprocesses; object reads are pygit2.** `git log --raw --all -- <issues-dir>` emits the complete transitions feed: every commit that touched the issues directory, with old and new blob OID, status, and renames per file. The id → oid map falls out of the feed: each never-seen OID gets its frontmatter parsed once, appending an (id → oid) entry. The map is append-only and content-addressed — no invalidation, ever. Shelling out to git follows the existing smart-HTTP pattern.
 
-`id: <uuid>` in the file, stamped by the editor on filing. Survives every file operation that preserves the field — moves, edits, basename renames, cross-branch divergence — and stitching versions across branches is a field comparison. The cost: identity lives inside blob content, the one place git cannot index at any speed (`git grep` answers only the present per tip; pickaxe reports occurrence-count changes only — it finds the filing commit but not edits, and with default rename detection not even moves). gitflower would have to build and own an id → oid map as its core index, parse every blob's frontmatter, and impose the field — breaking the zero-schema stance. Copy-paste and templates can duplicate ids, so uniqueness needs checking anyway.
+**Commit-graph maintenance.** gitflower hosts the bare repos and keeps `git commit-graph write --reachable --changed-paths` fresh (post-receive or `git maintenance`). The changed-path Bloom filters let the path-scoped walk skip commits that didn't touch the issues directory without computing a diff; generation numbers speed up merge-base and containment queries.
 
-### B. Filename with birth registration
+**Map-reduce caching.** Every cache layer is keyed by an immutable OID, so entries never invalidate — caches only grow and evict: blob OID → parsed frontmatter; issues-tree OID → {path: blob OID} listing; tip commit → issue documents. A list query reduces the per-tip pieces into the document array and applies the JMESPath expression. v1 computes the id → oid map lazily this way; when a repo outgrows on-demand walks, the map is materialized under `refs/gitflower/issues/<uuid>` (issue data, transitions, and version blobs — content addressing makes pinning the blobs free in storage, and pinned versions survive branch deletion).
 
-An issue is `issues/<name>.md`; the basename is immutable and moves change directories only. Birth is registered by the ref `refs/issues/<name>` pointing at the creating commit; atomic ref creation lets git arbitrate name collisions at push time. Fully git-native for queries (trees index paths; path-scoped walks are the Bloom-accelerated kind), best-in-class URLs and references, zero schema. The costs: basenames can never change; uniqueness is only enforced at push (offline-created issues can collide until then, and the losing push is rejected — friction); registration requires the hook to be in the loop; and the registration refs are genuine semantic state — which birth owns a name is not derivable from trees alone.
+**Query functions** (gitread level): `issues(repo, q=None, branches=None)`, `issue(repo, uuid)`, `issues_for_commit(repo, sha)`, `issue_at(repo, uuid, commit)`. List and classification answer from cached tree listings without walking; timelines walk path-scoped on demand.
 
-### C. Birth blob OID
+## Querying
 
-The issue's identity is the blob OID of its first version; later versions map onto it through the transition lineage. Intrinsic and registration-free: the id exists the moment the file is created, offline, with no central authority, and later basename renames don't touch identity. The flaw is templates: two issues filed with byte-identical initial content (a template, an empty file) share the birth blob OID and collapse into one issue — content addressing deduplicates exactly what identity must distinguish. Resolution from id to current state also needs a lineage-roots lookup (cacheable, but the id itself is not a path git can walk).
+Filtering is JMESPath over issue documents of the shape `{id, title, frontmatter, branches: {name: {path, oid, state}}, transitions}` — frontmatter and computed cross-branch state reachable in one expression (`[?frontmatter.status=='open']`, `[?branches.qa]`). Beyond `id`, gitflower defines no vocabulary; each project puts whatever it wants in frontmatter and queries it.
 
-### D. Birth event (creating commit + path)
+## Web UI
 
-The issue's identity is where and when it was born: the creating commit plus the path within it. Unique unconditionally — commits are unique, the path disambiguates a commit creating several issues, and template-identical content in different commits stays distinct. Intrinsic and registration-free like C, zero schema, derivable purely from history, and it permits basename renames. Handles read reasonably: `login-timeout@189d289` (birth basename plus short commit). Costs: references are two-part and slightly verbose; resolution needs the same lineage-roots lookup as C; and the birth commit of an issue whose branch was deleted before merging becomes unreachable after gc (the general deleted-branch caveat, hitting identity itself).
+Endpoints follow the existing pattern (same URL serves page, fragment, and JSON):
 
-### E. Path with heuristic rename detection
+- `GET /repos/{path}/issues/` — list; `?q=<jmespath>` filters, `?branch=` scopes.
+- `GET /repos/{path}/issues/{uuid}` — detail: versions per branch, divergences, the version DAG as timeline; `@<commit>` pins a version. The uuid is a stable permalink surviving every move and rename.
+- Existing views gain cross-links: commit detail shows the issues it transitions, blob view shows "this file is issue X".
 
-The rejected baseline: identity is the current path, connected across moves by similarity-based rename detection (`git log --follow` semantics). Move+edit in one commit breaks the chain silently below the similarity threshold, results depend on diff config and rename limits, template-derived files mispair, and detection walks a single history so it cannot connect divergent moves across branches. Listed for completeness; no property of E beats the other options.
+The ambition beyond that is a kanban/graph/timeline presentation over the branches; the version DAG renders with the existing graph machinery.
 
-### Key versus handle
+## Tasks
 
-The options answer two different needs and can be layered: a **stable key** (permanent, unique — what cross-references and the index use) and a **human handle** (what URLs and people use, allowed to change). Pairings worth considering: D as key with the current filename as handle; B as handle-first design where the name *is* the key at the price of immutability; A as an opt-in convention on top of any of them for projects wanting portable ids. The decision is which key gitflower's core commits to.
+- [ ] Per-repo git config keys: issues directory, branch patterns
+- [ ] Feed parser: `git log --raw` into transitions grouped by id; frontmatter memoization by blob OID
+- [ ] `issue-tracker` workflow: reject duplicate ids in a tree and id changes in a commit
+- [ ] Commit-graph maintenance on hosted repos (post-receive)
+- [ ] OID-keyed caches: frontmatter, tree listings, tip documents
+- [ ] JMESPath filtering (`python3-jmespath`)
+- [ ] List and detail endpoints and fragments
+- [ ] `gitflower issues fsck`: cross-branch duplicate ids, orphaned files, map verification via `--find-object`
+- [ ] Issue editor flow: create branch plus issue file, stamping `id`
+- [ ] Materialized index refs `refs/gitflower/issues/<uuid>` with version pinning (scale option)
+- [ ] Kanban/graph/timeline view over branches
+
+# Considerations
+
+## Identity options evaluated
+
+Identity was the blocking question; five options were written down and evaluated before deciding on A.
+
+**A. Frontmatter uuid (chosen).** Survives every file operation including move-and-edit commits and basename renames, needs no registration authority, and stitches branches by field equality. Costs accepted: gitflower defines one frontmatter field, owns the id → oid map as its core structure (mitigated by OID-keyed memoization over the transitions feed), and guards uniqueness through the hook and fsck.
+
+**B. Filename with birth-registration refs (`refs/issues/<name>`).** Fully git-native and best-in-class URLs, but basenames become immutable, moves must be blob-exact and hook-disciplined, uniqueness exists only at push time, and the registration refs are semantic state not derivable from trees.
+
+**C. Birth blob OID.** Intrinsic and registration-free, but template-identical initial content collides: two issues born with the same bytes share one OID — content addressing deduplicates exactly what identity must distinguish.
+
+**D. Birth event (creating commit + path).** Unconditionally unique and registration-free, but references are two-part and verbose, resolution needs a lineage-roots lookup, continuity still requires move discipline, and an unmerged issue's birth commit becomes unreachable after its branch is deleted.
+
+**E. Path with heuristic rename detection.** Move+edit breaks the chain silently, results depend on diff config, template files mispair, and a single-history walk cannot connect divergent moves across branches. No property beats the other options.
 
 | | A uuid | B name+ref | C birth blob | D birth event | E follow |
 |---|---|---|---|---|---|
@@ -64,62 +94,27 @@ The options answer two different needs and can be layered: a **stable key** (per
 | Zero schema | ✗ | ✓ | ✓ | ✓ | ✓ |
 | No bespoke core index | ✗ | ✓ | ~ (roots map) | ~ (roots map) | ✓ |
 
-## Implementation
+A is the only option that survives all file operations without imposing discipline on how people commit; the index cost it carries is the one gitflower can pay entirely in infrastructure, invisible to users.
 
-These pieces stand regardless of the identity decision; the decision only determines what extra structure exists (A: an id → oid map as core index; B: registration refs plus push-time arbitration; C/D: a small lineage-roots cache).
+## No in-object queries in git
 
-**History walks are git subprocesses; object reads are pygit2.** `git log --raw --all -- <issues-dir>` emits the complete transitions feed: every commit that touched the issues directory, with old and new blob OID, status, and OID-exact renames per file. Parsing this feed yields transitions, lineages, and births. Shelling out to git follows the existing smart-HTTP pattern.
-
-**Commit-graph maintenance.** gitflower hosts the bare repos and keeps `git commit-graph write --reachable --changed-paths` fresh (post-receive or `git maintenance`). The changed-path Bloom filters let the path-scoped walk skip commits that didn't touch the issues directory without computing a diff; generation numbers speed up merge-base and containment queries.
-
-**Map-reduce caching.** Every cache layer is keyed by an immutable OID, so entries never invalidate — caches only grow and evict: blob OID → parsed frontmatter; issues-tree OID → {path: blob OID} listing; tip commit → issue documents. A list query reduces the per-tip pieces into the document array and applies the JMESPath expression. No materialized index is needed; if a repo outgrows on-demand walks, a cache ref under `refs/gitflower/` can be added later without changing the model.
-
-**Query functions** (gitread level): `issues(repo, q=None, branches=None)`, `issue(repo, id)`, `issues_for_commit(repo, sha)`, `issue_at(repo, id, commit)`. List and classification answer from cached tree listings without walking; timelines walk path-scoped on demand.
-
-## Querying
-
-Filtering is JMESPath over issue documents of the shape `{id, title, birth: {commit, path}, frontmatter, branches: {name: {path, oid, state}}, transitions}` — frontmatter and computed cross-branch state reachable in one expression (`[?frontmatter.status=='open']`, `[?branches.qa]`). gitflower defines no vocabulary; each project puts whatever it wants in frontmatter and queries it.
-
-## Web UI
-
-Endpoints follow the existing pattern (same URL serves page, fragment, and JSON):
-
-- `GET /repos/{path}/issues/` — list; `?q=<jmespath>` filters, `?branch=` scopes.
-- `GET /repos/{path}/issues/{id}` — detail: versions per branch, divergences, the version DAG as timeline; `@<commit>` pins a version.
-- Existing views gain cross-links: commit detail shows the issues it transitions, blob view shows "this file is issue X".
-
-The ambition beyond that is a kanban/graph/timeline presentation over the branches; the version DAG renders with the existing graph machinery.
-
-## Tasks
-
-- [ ] **Decide issue identity** — evaluate [Identity options](#identity-options); blocks reference format, index shape, and hook scope
-- [ ] Per-repo git config keys: issues directory, branch patterns
-- [ ] Feed parser: `git log --raw` into transitions, lineages, births
-- [ ] `issue-tracker` workflow: enforce blob-exact, directory-only moves
-- [ ] Commit-graph maintenance on hosted repos (post-receive)
-- [ ] OID-keyed caches: frontmatter, tree listings, tip documents
-- [ ] JMESPath filtering (`python3-jmespath`)
-- [ ] List and detail endpoints and fragments
-- [ ] Issue editor flow: create branch plus issue file, moves committed separately
-- [ ] Kanban/graph/timeline view over branches
-
-# Considerations
+Git's two content-aware queries were evaluated for id → oid and both fall short. `git grep <uuid> <tip> -- issues/` answers only the present, per tip. Pickaxe (`git log -S<uuid>`) is an unindexed full-history walk that reports occurrence-count changes only: it finds the filing commit but not edits (the uuid's count is unchanged) and, with rename detection on by default, not even moves. Hence the id → oid map is built and owned by gitflower.
 
 ## Why prior art avoided in-tree files
 
-Tools like git-bug and git-appraise store issues as structured objects in their own ref namespace instead of as files in the tree — likely because in-tree files with content-based identity have no cheap query path. Identity options that live in paths, refs, or history keep the queries git-native; option A would reintroduce the price prior art avoided.
+Tools like git-bug and git-appraise store issues as structured objects in their own ref namespace instead of as files in the tree — likely because in-tree files with content-based identity have no cheap query path. gitflower keeps the files (human-editable, mergeable, reviewable in MRs) and pays the price knowingly: the id → oid map is derived from one Bloom-accelerated path-scoped walk and memoized forever.
 
 ## History of deleted branches
 
-On-demand git queries only see history reachable from live refs; versions that existed only on a deleted branch become unreachable after gc. Accepted for v1. If full version retention matters later, a cache ref pinning version blobs (content addressing makes this free in storage) can be added without changing the model — and would also keep option D's birth commits reachable.
+On-demand git queries only see history reachable from live refs; versions that existed only on a deleted branch become unreachable after gc. Accepted for v1. The materialized index refs (scale option) pin version blobs — content addressing makes this free in storage — and keep an issue's full history alive past its branch's lifetime.
 
 ## Subprocess git over pygit2 for history walks
 
 pygit2 1.17 exposes no commit-graph, Bloom filter, or bitmap API, while `git log --raw` emits exactly the data the feed parser needs. Object and tree reads stay pygit2; history walks shell out, as smart-HTTP already does.
 
-## No issue schema
+## One defined field, no further schema
 
-A fixed frontmatter vocabulary (id, title, status, labels, assignee) was considered and rejected in stages, ending at zero defined fields. Projects differ; JMESPath over free frontmatter lets each project define its own logic without gitflower standing in the way. Consequence: gitflower's UI can only generically render what it finds, and "fancy" views (kanban columns) will need per-repo configuration mapping query expressions to UI.
+A fuller frontmatter vocabulary (title, status, labels, assignee) was considered and rejected; only `id` is defined, because identity is the one thing the platform itself must resolve. Projects differ on everything else; JMESPath over free frontmatter lets each project define its own logic without gitflower standing in the way. Consequence: gitflower's UI can only generically render what it finds, and "fancy" views (kanban columns) will need per-repo configuration mapping query expressions to UI.
 
 ## Git config over `.gitflower/config.yaml`
 
