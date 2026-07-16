@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+# A static system user owns the hosted repositories, so git's repository-
+# ownership check (safe.directory) holds naturally: the service opens repos
+# owned by the same user it runs as. Repos are created with
+#   sudo -u gitflower gitflower --config /etc/gitflower/config.yaml create <path>
+if [ "$1" = "configure" ]; then
+    if ! getent passwd gitflower >/dev/null; then
+        adduser --system --group --home /var/lib/gitflower \
+            --no-create-home --quiet gitflower
+    fi
+fi
+
+#DEBHELPER#

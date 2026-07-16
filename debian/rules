@@ -1,0 +1,7 @@
+#!/usr/bin/make -f
+
+export PYBUILD_NAME = gitflower
+export PYBUILD_TEST_PYTEST = 1
+
+%:
+	dh $@ --buildsystem=pybuild

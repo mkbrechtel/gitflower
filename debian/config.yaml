@@ -1,0 +1,13 @@
+# gitflower system configuration — used by the gitflower.service web UI.
+# CLI runs read ~/.config/gitflower/config.yaml first; this file is the
+# fallback for both.
+
+repos:
+  directory: /var/lib/gitflower/repos
+  scan_depth: 3
+  default_branch: main
+
+web:
+  # localhost by default: put a TLS-terminating proxy in front, or change
+  # deliberately to ":8747" to listen on all interfaces.
+  address: "127.0.0.1:8747"

@@ -1,0 +1,62 @@
+.TH GITFLOWER 1 "July 2026" "gitflower 0.1.0" "User Commands"
+.SH NAME
+gitflower \- git-based development platform
+.SH SYNOPSIS
+.B gitflower
+[\fB\-\-config\fR \fIFILE\fR]
+\fICOMMAND\fR [\fIARGS\fR...]
+.SH DESCRIPTION
+.B gitflower
+provides branch workflow enforcement via git hooks and a web UI for
+browsing hosted bare repositories.
+.PP
+Per-repository commands act on the git repository in the current working
+directory; hosting commands act on the repos directory from the global
+configuration.
+.SH COMMANDS
+.TP
+.B init
+Initialize gitflower in the current repository: writes
+\fI.gitflower/config.yaml\fR with the default branch rules.
+.TP
+.B install
+Install the pre-push hook. Refuses to overwrite a foreign hook unless
+\fB\-\-force\fR is given.
+.TP
+.B uninstall
+Remove gitflower-owned hooks.
+.TP
+.B config show
+Print the effective configuration.
+.TP
+.B config edit
+Open the repository configuration in \fB$EDITOR\fR and validate the result.
+.TP
+.B create \fIPATH\fR
+Create a bare repository under the configured repos directory.
+Organization folders nest: \fBgitflower create org/team/app.git\fR.
+.TP
+.B list \fR[\fB\-\-format\fR table|json|yaml] [\fB\-\-warnings\fR]
+List repositories in the repos directory.
+.TP
+.B web \fR[\fB\-\-addr\fR \fIADDRESS\fR]
+Start the web server. Every endpoint serves JSON, a full HTML page, and
+an HTML fragment from the same URL via content negotiation.
+.SH FILES
+.TP
+.I .gitflower/config.yaml
+Per-repository branch rules and protection policy.
+.TP
+.I ~/.config/gitflower/config.yaml, /etc/gitflower/config.yaml
+Global configuration: repos directory and web address. The first file
+found wins; \fB$GITFLOWER_CONFIG\fR or \fB\-\-config\fR override.
+.SH ENVIRONMENT
+.TP
+.B GITFLOWER_CONFIG
+Path to the global configuration file.
+.TP
+.B GITFLOWER_BIN
+Used by the installed hook shim to locate the gitflower executable.
+.SH SEE ALSO
+.BR git (1),
+.BR githooks (5)
