@@ -66,6 +66,31 @@ def test_a_merge_opens_a_lane_that_closes_at_the_merge_base():
     assert not any(edge["stub"] for edge in laid_out["edges"])
 
 
+def test_merge_extra_parent_leaves_its_lane_before_the_first_parent_line():
+    """A merge's second parent that points at an *older* commit down-and-left
+    must bend out of the merge's lane at once. The first parent keeps that lane
+    going down, so a second-parent edge that lingered in it would draw straight
+    over the first-parent line and through whatever commit sits on it."""
+    commits = [
+        commit("a", "b", "f"),  # trunk merge, opens lane 1 for f
+        commit("f", "fp", "b"),  # merge on lane 1; 2nd parent b is old (lane 0)
+        commit("fp", "b"),  # feature commit sitting in lane 1, points at b
+        commit("b"),  # the shared, older base on lane 0
+    ]
+    laid_out = graph.build(commits, tips={"a"})
+    at = {row["id"]: row for row in laid_out["rows"]}
+    assert at["f"]["lane"] == 1 and at["fp"]["lane"] == 1  # both in the merge lane
+
+    fx, fy = at["f"]["x"], at["f"]["y"]
+    down_the_lane = f"M {fx},{fy} V"  # the first-parent shape: straight down
+    from_f = [e for e in laid_out["edges"] if e["d"].startswith(f"M {fx},{fy}")]
+    # f -> fp (first parent) runs straight down the lane...
+    assert any(e["d"].startswith(down_the_lane) for e in from_f)
+    # ...but f -> b (the extra parent) must curve away immediately, not trace it
+    assert sum(e["d"].startswith(down_the_lane) for e in from_f) == 1
+    assert any(e["d"].startswith(f"M {fx},{fy} C") for e in from_f)
+
+
 def test_history_cut_off_by_the_limit_gets_a_dashed_stub():
     commits = [commit("a", "b")]  # b was never fetched
     laid_out = graph.build(commits, tips={"a"})
