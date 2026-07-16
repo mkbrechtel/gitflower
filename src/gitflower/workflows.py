@@ -95,6 +95,79 @@ def passthrough(ctx: Context, policy: ProtectedBranch | None = None) -> Result:
     return Result(True, f"Operation on branch '{ctx.branch}' allowed.")
 
 
+def _issues_directory(repo_path: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", repo_path, "config", "--get", "gitflower.issues.directory"],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip().strip("/") or "issues" if result.returncode == 0 else "issues"
+
+
+def _tree_issue_ids(repo_path: str, ref: str, directory: str) -> dict[str, str | None]:
+    """path → front-matter id for every issue file in the tree at `ref`."""
+    from gitflower.issues import parse_frontmatter
+
+    out = subprocess.run(
+        ["git", "-C", repo_path, "ls-tree", "-r", "-z", ref, "--", f"{directory}/"],
+        capture_output=True,
+    )
+    ids: dict[str, str | None] = {}
+    if out.returncode != 0:
+        return ids
+    for entry in out.stdout.decode("utf-8", errors="replace").split("\0"):
+        if not entry or "\t" not in entry:
+            continue
+        meta, path = entry.split("\t", 1)
+        mode_type_oid = meta.split(" ")
+        if len(mode_type_oid) != 3 or mode_type_oid[1] != "blob" or not path.endswith(".md"):
+            continue
+        blob = subprocess.run(
+            ["git", "-C", repo_path, "cat-file", "blob", mode_type_oid[2]],
+            capture_output=True,
+        )
+        fm = parse_frontmatter(blob.stdout) if blob.returncode == 0 else None
+        issue_id = (fm or {}).get("id")
+        ids[path] = str(issue_id) if issue_id is not None else None
+    return ids
+
+
+def issue_tracker(ctx: Context) -> Result:
+    """Id integrity for issue files (see issues/issues-view.md): a pushed
+    tree must not carry one id twice, and a push must not change or remove
+    the id of an issue file that keeps its path."""
+    if ctx.new_ref == ZERO_SHA:
+        return Result(True, f"Deleting issue branch '{ctx.branch}' allowed.")
+    directory = _issues_directory(ctx.repo_path)
+    new_ref = ctx.new_ref or ctx.branch
+    new_ids = _tree_issue_ids(ctx.repo_path, new_ref, directory)
+
+    seen: dict[str, str] = {}
+    for path, issue_id in sorted(new_ids.items()):
+        if issue_id is None:
+            continue
+        if issue_id in seen:
+            return Result(
+                False,
+                f"Duplicate issue id '{issue_id}' in '{seen[issue_id]}' and "
+                f"'{path}' on branch '{ctx.branch}'. Issue ids must be unique.",
+            )
+        seen[issue_id] = path
+
+    if ctx.old_ref and ctx.old_ref != ZERO_SHA:
+        old_ids = _tree_issue_ids(ctx.repo_path, ctx.old_ref, directory)
+        for path, old_id in old_ids.items():
+            if old_id is None or path not in new_ids:
+                continue
+            if new_ids[path] != old_id:
+                return Result(
+                    False,
+                    f"Issue id changed in '{path}' on branch '{ctx.branch}'. "
+                    "Issue ids are permanent — file a new issue instead.",
+                )
+    return Result(True, f"Push to issue branch '{ctx.branch}' allowed.")
+
+
 class RouteError(Exception):
     pass
 
@@ -131,4 +204,6 @@ def execute(config: RepoConfig, ctx: Context) -> Result:
     rule = route(config, ctx.branch)
     if rule.workflow == "protected":
         return protected(ctx, find_policy(config, ctx.branch))
+    if rule.workflow == "issue-tracker":
+        return issue_tracker(ctx)
     return passthrough(ctx)
