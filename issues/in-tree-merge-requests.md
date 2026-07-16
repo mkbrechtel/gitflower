@@ -17,16 +17,19 @@ The review feature is specced separately ([`../docs/spec/dot-review-format.md`](
 
 **An MR has no formal target branch.** A message starting `MR: <summary>` is an unspecified merge request: this line of work aims to be merged into the mainline (the default branch) over an appropriate path — the path is not predefined, and integration may happen via intermediate merges over a longer line. `MR@<branch>: <summary>` specifies an explicit target branch, for special circumstances.
 
-**The MR runs through a pipeline of phases, each marked by a ref.** When an MR commit appears in a push, a git hook puts it on `refs/mrs/<merge-id>/request` and the pipeline begins. A successful run looks like `/request → /modifications → /checks → /reviews → /release → /resolution`:
+**The MR runs through a pipeline of phases, each marked by a ref.** When an MR commit appears in a push, a git hook puts it on `refs/mrs/<merge-id>/request` and the pipeline begins. A successful run looks like `/request → /modifications → /merger → /checks → /reviews → /release → /resolution`:
 
 - `refs/mrs/<merge-id>/request` — the merge request commit.
-- `refs/mrs/<merge-id>/modifications` — mechanical preparation by bots on top of the request: a release bot assigning a version number, formatters, generated files. These commits modify the tree; checks and reviews cover the modified result.
-- `refs/mrs/<merge-id>/checks` — machine checks: CI results, linter output, and the merge test. The MR is test-merged against the mainline; if that conflicts, a merge commit with the open conflict markers and a message starting `Merge Conflicts` is generated and set as the resolution — the MR is refused and never enters the review phase. MRs with merge conflicts are never accepted.
-- `refs/mrs/<merge-id>/reviews` — human reviews and approvals, entered only when the checks pass.
-- `refs/mrs/<merge-id>/release` — here the merge happens. The release merge re-runs the merge test against the mainline's current tip; a late conflict refuses the MR exactly as in the checks phase.
-- `refs/mrs/<merge-id>/resolution` — the commit that resolves the MR: the positive release merge, an empty commit whose message starts `Closure: <reason>` (the MR is closed definitely), a superseding MR commit based on this one, or the conflicted `Merge Conflicts` merge.
+- `refs/mrs/<merge-id>/modifications` — mechanical preparation by bots on top of the request: a release bot assigning a version number, formatters, generated files. These commits modify the tree.
+- `refs/mrs/<merge-id>/merger` — the merge into the target happens here: a merge commit joining the chain with the mainline's (or the `MR@<branch>` target's) tip. If the merge conflicts, the merge commit carries the open conflict markers and a message starting `Merge Conflicts` and is set as the resolution — the MR is refused and never enters checks or review. MRs with merge conflicts are never accepted.
+- `refs/mrs/<merge-id>/checks` — machine checks on the merged tree: CI results, linter output.
+- `refs/mrs/<merge-id>/reviews` — human reviews and approvals. The review targets the merger commit — the tree as it will actually look on the target, including all modifications and merge effects — and starts only after the checks concluded: no brain time or tokens are spent on faulty trees.
+- `refs/mrs/<merge-id>/release` — the merged result lands on the target here.
+- `refs/mrs/<merge-id>/resolution` — the commit that resolves the MR: the positive release, an empty commit whose message starts `Closure: <reason>` (the MR is closed definitely), a superseding MR commit based on this one, or the conflicted `Merge Conflicts` merge.
 
-**The pipeline is one linear chain.** All phases are segments of a single linear history on top of the request commit; each phase ref points at the last commit of its segment. Nothing merges into the chain sideways.
+**The pipeline is one chain, linear along its first parent.** Each phase ref points at the last commit of its segment, stacked on the previous phase's tip; the merger commit is the one point where a second parent — the target's tip — joins the chain. Checks and reviews stack on top of the merger commit.
+
+**Checks and reviews cover the merged result.** Because the merger phase precedes them, machine checks and human review examine the tree after merging into the target — so mechanical modifications and merge effects are checked and reviewed too, not just the author's work.
 
 **Conversation is commits plus `.review` files — nothing else.** The MR commit's message is the description. Reviews, approvals, and machine check results are `.review` events in commits on the chain, following the on-tree `reviews/…` path convention of the dot-review spec; modification commits may change any part of the tree. There is no separate manifest or discussion-file format.
 
@@ -36,7 +39,7 @@ The review feature is specced separately ([`../docs/spec/dot-review-format.md`](
 
 **The release merge may prune the conversation from the tree.** The merge commit may delete files again — the in-tree review and check files — so they are attached to history but don't linger in the mainline's tree.
 
-**MR state is derived from the namespace, not stored.** Which phase refs exist and where they point is the state: open in checks, open in review, merged, closed, superseded, or refused with conflicts (resolution points at a `Merge Conflicts` merge). There is no status field that could drift from reality.
+**MR state is derived from the namespace, not stored.** Which phase refs exist and where they point is the state: in preparation, refused at the merger (resolution points at a `Merge Conflicts` merge), in checks, in review, released, closed, or superseded. There is no status field that could drift from reality.
 
 **Merge policy is configuration — stubbed for now.** Which checks and approvals an MR needs before it may release is defined in gitflower's configuration. Initially this is a stub: the configuration surface exists, the enforcement is implemented later.
 
@@ -44,11 +47,11 @@ The review feature is specced separately ([`../docs/spec/dot-review-format.md`](
 
 ### O1 — Who advances the pipeline?
 
-What moves the MR from phase to phase: the hook alone, bots reporting in, or a maintainer command? Concretely — what triggers the modification bots, what declares the checks phase passed (all policy-required checks green?), and who may cut the release merge.
+What moves the MR from phase to phase: the hook alone, bots reporting in, or a maintainer command? Concretely — what triggers the modification bots, who cuts the merger commit, what declares the checks phase passed (all policy-required checks green?), and who may release.
 
-### O2 — Does mainline drift during review re-trigger checks?
+### O2 — What exactly happens at `/release`, and what about target drift?
 
-The release re-runs the merge test, so correctness is covered. But when the mainline advances while the MR sits in review: do the machine checks re-run against a fresh test-merge, or does the MR proceed on its old checks until release?
+The merger commit was cut against the target's tip at merger time; the target may have advanced by the time checks and reviews conclude. Does release require the merger to still be current (fast-forwardable — otherwise the pipeline loops back through merger → checks → reviews on a fresh merge), or may release re-merge without re-review? Tied to this: what the target branch actually advances to — the chain tip (bringing the conversation into target history, with the reviews as first-parent ancestry), a pruning commit on top of it, or a fresh merge commit — and how that interacts with the usual first-parent-is-mainline convention.
 
 ### O3 — Does a superseding MR link back?
 
@@ -68,13 +71,13 @@ Where the merge policy lives in the existing configuration (`branch_rules` workf
 
 ### O7 — Web UI
 
-Discovery is enumerating `refs/mrs/*/request`. The pipeline suggests the rendering: the MR as a stage view (request → modifications → checks → reviews → release), each stage showing its segment of the chain. Still open: the list view's columns (summary, author, phase, conflict state) and how the detail view presents the diff to be merged versus the conversation.
+Discovery is enumerating `refs/mrs/*/request`. The pipeline suggests the rendering: the MR as a stage view (request → modifications → merger → checks → reviews → release), each stage showing its segment of the chain. Still open: the list view's columns (summary, author, phase, conflict state) and how the detail view presents the diff to be merged versus the conversation.
 
 # Considerations
 
 ## Superseded: parallel reviews and checks refs
 
-A previous iteration split human reviews and machine checks into two sibling refs, both based on the MR commit — which makes the record non-linear as soon as both need merging. Before that, a single unsegmented "reactions" line was considered, but no name for it felt right (`/responses`, `/evaluation`, `/proceedings`, `/vetting`, …). The pipeline resolves both problems: one linear chain, and each segment names itself by its phase. The standing `/merger` candidate ref (recomputed from both sides) is likewise replaced by the merge test in the checks phase plus the re-test at release.
+A previous iteration split human reviews and machine checks into two sibling refs, both based on the MR commit — which makes the record non-linear as soon as both need merging. Before that, a single unsegmented "reactions" line was considered, but no name for it felt right (`/responses`, `/evaluation`, `/proceedings`, `/vetting`, …). The pipeline resolves both problems: one chain, and each segment names itself by its phase. A standing `/merger` candidate ref recomputed from both sides — and, briefly, a merge test inside the checks phase — became the merger *phase* instead, so that checks and reviews operate on the merged tree rather than predicting it.
 
 ## Superseded: branch-carried conversation
 
