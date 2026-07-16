@@ -256,3 +256,20 @@ def test_issue_for_blob(repo):
     found = issues.issue_for_blob(repo, "issues/login.md", oid)
     assert found["id"] == UUID_A
     assert issues.issue_for_blob(repo, "README.md", oid) is None
+
+
+# ------------------------------------------------------------------- fsck
+
+
+def test_fsck_reports_missing_and_duplicate_ids(issue_repo, repo):
+    git(issue_repo, "checkout", "-b", "broken")
+    (issue_repo / "issues" / "twin.md").write_text(issue_md(UUID_A, "Twin of login"))
+    git(issue_repo, "add", ".")
+    git(issue_repo, "commit", "-m", "duplicate id by copy-paste")
+    git(issue_repo, "checkout", "main")
+    findings = issues.fsck(repo)
+    kinds = {(f["kind"], f["branch"]) for f in findings}
+    assert ("duplicate-id", "broken") in kinds
+    assert ("missing-id", "main") in kinds
+    dup = next(f for f in findings if f["kind"] == "duplicate-id")
+    assert dup["id"] == UUID_A

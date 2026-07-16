@@ -389,6 +389,35 @@ def issue_detail(repo: pygit2.Repository, uuid: str, at: str | None = None) -> d
     }
 
 
+def fsck(repo: pygit2.Repository) -> list[dict]:
+    """Integrity findings across all selected branch tips: duplicate ids
+    within one tree (the hook rejects these at push time; fsck catches repos
+    without hooks) and issue files without an id."""
+    cfg = issues_config(repo)
+    findings = []
+    for branch in issue_branches(repo, cfg):
+        tip = _tip(repo, branch)
+        if tip is None:
+            continue
+        seen: dict[str, str] = {}
+        for path, oid in sorted(tree_listing(repo, tip, cfg.directory).items()):
+            issue_id = parse_issue(repo, oid, path)["id"]
+            if issue_id is None:
+                findings.append({"kind": "missing-id", "branch": branch, "path": path, "id": None})
+            elif issue_id in seen:
+                findings.append(
+                    {
+                        "kind": "duplicate-id",
+                        "branch": branch,
+                        "path": f"{seen[issue_id]}, {path}",
+                        "id": issue_id,
+                    }
+                )
+            else:
+                seen[issue_id] = path
+    return findings
+
+
 def issues_for_commit(repo: pygit2.Repository, sha: str) -> list[dict]:
     """The issues a commit transitions (for the commit-page cross-link):
     diff against the first parent, scoped to the issues directory."""
