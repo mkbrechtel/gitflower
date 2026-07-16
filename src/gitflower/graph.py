@@ -19,6 +19,8 @@ Two things happen here:
   reaches its commit and never runs along another branch's line.
 """
 
+import zlib
+
 ROW = 26  # px per row; the CSS row height must match, or dots drift off rows
 LANE = 15  # px per lane
 PAD = 11  # px from the left edge to lane 0
@@ -39,6 +41,17 @@ def _y(row: int) -> float:
 
 def _color(lane: int) -> str:
     return COLORS[lane % len(COLORS)]
+
+
+def _branch_color(branch: str | None, trunk: str | None, lane: int) -> str:
+    """The trunk always wears the accent; other branches hash their name to
+    a stable non-accent colour, so a line keeps its colour across reloads
+    even as lanes shuffle. Unattributed lines fall back to lane colours."""
+    if branch is None:
+        return _color(lane)
+    if branch == trunk:
+        return COLORS[0]
+    return COLORS[1 + zlib.crc32(branch.encode()) % (len(COLORS) - 1)]
 
 
 def _node(commit: dict) -> dict:
@@ -102,15 +115,7 @@ def _collapse(commits: list[dict], tips: set[str], min_run: int) -> list[dict]:
     return nodes
 
 
-def _free_lane(lanes: list[str | None]) -> int:
-    for i, expected in enumerate(lanes):
-        if expected is None:
-            return i
-    lanes.append(None)
-    return len(lanes) - 1
-
-
-def _place(nodes: list[dict]) -> list[dict]:
+def _place(nodes: list[dict], branch_of: dict[str, str], trunk: str | None) -> list[dict]:
     """Assign every node a row and a lane, walking newest to oldest — and
     record, for every merge's extra parent, the **corridor**: the lane its
     link line travels. A lane that is waiting for a sha never receives any
@@ -119,17 +124,33 @@ def _place(nodes: list[dict]) -> list[dict]:
 
     A fresh corridor is inserted directly beside the child whenever the
     lanes it would shift hold nothing drawn yet — the link then runs
-    parallel to its neighbours instead of crossing them."""
+    parallel to its neighbours instead of crossing them.
+
+    Branch attribution (`branch_of`, may be empty) refines two guesses:
+    lane 0 is held for the trunk when any of its commits are shown, and a
+    commit with several lanes waiting for it lands on its own branch's
+    lane instead of simply the leftmost."""
     lanes: list[str | None] = []  # lane -> the sha it is waiting for
     fresh: list[int | None] = []  # reserved-at row, while no dot sits on the lane
+    lane_branch: list[str | None] = []  # the branch whose line rides the lane
     pending: list[list] = []  # [child row dict, parent sha, corridor lane]
     rows: list[dict] = []
+    pinned = trunk is not None and any(branch_of.get(n["id"]) == trunk for n in nodes)
 
-    def free_lane() -> int:
-        lane = _free_lane(lanes)
-        if lane == len(fresh):
-            fresh.append(None)
-        return lane
+    def grow() -> int:
+        lanes.append(None)
+        fresh.append(None)
+        lane_branch.append(None)
+        return len(lanes) - 1
+
+    def free_lane(branch: str | None) -> int:
+        start = 1 if pinned and branch != trunk else 0
+        for i in range(start, len(lanes)):
+            if lanes[i] is None:
+                return i
+        while len(lanes) < start:
+            grow()  # keep lane 0 held for the trunk
+        return grow()
 
     def corridor_lane(after: int) -> int:
         """A lane for a new parent link: right beside the child when the
@@ -149,6 +170,7 @@ def _place(nodes: list[dict]) -> list[dict]:
         if all(clean(i) for i in range(pos, len(lanes))):
             lanes.insert(pos, None)
             fresh.insert(pos, None)
+            lane_branch.insert(pos, None)
             for link in pending:
                 if link[2] >= pos:
                     link[2] += 1
@@ -156,19 +178,30 @@ def _place(nodes: list[dict]) -> list[dict]:
         for i in range(pos, len(lanes)):
             if lanes[i] is None:
                 return i
-        lanes.append(None)
-        fresh.append(None)
-        return len(lanes) - 1
+        return grow()
 
     for row, node in enumerate(nodes):
+        branch = branch_of.get(node["id"])
         waiting = [i for i, expected in enumerate(lanes) if expected == node["id"]]
-        if waiting:
-            lane = waiting[0]
-            for merged_in in waiting[1:]:
+        if pinned and branch == trunk and (not lanes or lanes[0] is None or 0 in waiting):
+            # the trunk lives in lane 0 — claim it whenever it is open,
+            # even if branch lines were waiting for this commit elsewhere
+            # (they fold into the dot here, like any convergence)
+            if not lanes:
+                grow()
+            lane = 0
+        elif waiting:
+            # of the lanes expecting this commit, its own branch's line
+            # gets the dot; the others fold into it
+            matched = [i for i in waiting if branch is not None and lane_branch[i] == branch]
+            lane = (matched or waiting)[0]
+        else:
+            lane = free_lane(branch)  # a tip: nothing was expecting it
+        for merged_in in waiting:
+            if merged_in != lane:
                 lanes[merged_in] = None  # those branches end here
                 fresh[merged_in] = None
-        else:
-            lane = free_lane()  # a tip: nothing was expecting it
+                lane_branch[merged_in] = None
 
         # links waiting for this commit now know their final corridor
         for link in pending:
@@ -176,10 +209,11 @@ def _place(nodes: list[dict]) -> list[dict]:
                 link[0]["corridors"][link[1]] = link[2]
         pending = [link for link in pending if link[1] != node["id"]]
 
-        placed = {**node, "row": row, "lane": lane, "corridors": {}}
+        placed = {**node, "row": row, "lane": lane, "branch": branch, "corridors": {}}
         parents = node["parents"]
         lanes[lane] = parents[0] if parents else None
         fresh[lane] = None  # a dot sits here; the stretch below hangs off it
+        lane_branch[lane] = branch
         for parent in parents[1:]:  # a merge forks a lane per extra parent
             if parent in lanes:
                 corridor = lanes.index(parent)  # ride the parent's own line
@@ -187,13 +221,16 @@ def _place(nodes: list[dict]) -> list[dict]:
                 corridor = corridor_lane(lane)
                 lanes[corridor] = parent
                 fresh[corridor] = row
+                # a corridor is a link, not a branch line — left unattributed
+                # so the dot prefers the parent's real line when one waits
+                lane_branch[corridor] = None
             pending.append([placed, parent, corridor])
 
         rows.append(placed)
     return rows
 
 
-def _edges(rows: list[dict]) -> list[dict]:
+def _edges(rows: list[dict], trunk: str | None = None) -> list[dict]:
     """One path per parent link, routed through the link's **corridor** — the
     lane _place reserved for it. A merge's extra parent leaves the child's
     lane within the first row, runs the whole distance down the corridor
@@ -213,7 +250,7 @@ def _edges(rows: list[dict]) -> list[dict]:
                 edges.append(
                     {
                         "d": f"M {x0},{y0} V {y0 + ROW * 0.6:.0f}",
-                        "color": _color(row["lane"]),
+                        "color": _branch_color(row["branch"], trunk, row["lane"]),
                         "lanes": [row["lane"]],
                         "stub": True,
                     }
@@ -245,10 +282,11 @@ def _edges(rows: list[dict]) -> list[dict]:
                     f"M {x0},{y0} C {x0},{y0 + ROW / 2} {xc},{y0 + ROW / 2} {xc},{out}"
                     f" V {fold} C {xc},{fold + ROW / 2} {x1},{fold + ROW / 2} {x1},{y1}"
                 )
+            line = row["branch"] if corridor == row["lane"] else target["branch"]
             edges.append(
                 {
                     "d": d,
-                    "color": _color(corridor),
+                    "color": _branch_color(line, trunk, corridor),
                     "lanes": sorted({row["lane"], corridor, target["lane"]}),
                     "stub": False,
                 }
@@ -256,16 +294,24 @@ def _edges(rows: list[dict]) -> list[dict]:
     return edges
 
 
-def build(commits: list[dict], tips: set[str], collapse: bool = True) -> dict:
+def build(
+    commits: list[dict],
+    tips: set[str],
+    collapse: bool = True,
+    branch_of: dict[str, str] | None = None,
+    trunk: str | None = None,
+) -> dict:
     """Lay out `commits` (newest first, parents after children). `tips` are the
-    shas a ref points at — they are never folded away."""
+    shas a ref points at — they are never folded away. `branch_of` (from
+    gitread.born_on) attributes commits to branches: the trunk keeps lane 0
+    and the accent colour, every branch keeps a stable colour of its own."""
     nodes = _collapse(commits, tips, MIN_COLLAPSE if collapse else len(commits) + 1)
-    rows = _place(nodes)
+    rows = _place(nodes, branch_of or {}, trunk)
     for row in rows:
         row["x"] = _x(row["lane"])
         row["y"] = _y(row["row"])
-        row["color"] = _color(row["lane"])
-    edges = _edges(rows)
+        row["color"] = _branch_color(row["branch"], trunk, row["lane"])
+    edges = _edges(rows, trunk)
     # a corridor can be the rightmost lane while carrying no dots
     lanes_used = [row["lane"] for row in rows]
     for edge in edges:

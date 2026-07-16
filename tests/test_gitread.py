@@ -283,3 +283,95 @@ def test_octopus_merge_gets_a_column_per_parent(merged, tmp_path):
     (row,) = files["b1.txt"]["rows"]
     assert [c["status"] for c in row["cells"]] == ["absent", "same", "absent"]
     assert not row["merge_authored"]  # b1's side was taken; nothing merge-authored
+
+
+# ------------------------------------------------------------- born_on
+
+
+@pytest.fixture
+def attributed(tmp_path):
+    """A non-bare repo (reflogs on) with a merged feature and a stack."""
+    import pygit2
+
+    work = tmp_path / "attributed"
+    work.mkdir()
+    git(work, "init", "-b", "main")
+
+    def commit(name):
+        (work / name).write_text(name)
+        git(work, "add", ".")
+        git(work, "commit", "-m", name)
+        return git(work, "rev-parse", "HEAD").stdout.strip()
+
+    shas = {}
+    shas["m1"] = commit("m1.txt")
+    shas["m2"] = commit("m2.txt")
+    git(work, "checkout", "-b", "feat")
+    shas["f1"] = commit("f1.txt")
+    shas["f2"] = commit("f2.txt")
+    git(work, "checkout", "main")
+    shas["m3"] = commit("m3.txt")
+    git(work, "merge", "--no-ff", "feat", "-m", "merge feat")
+    shas["merge"] = git(work, "rev-parse", "HEAD").stdout.strip()
+    git(work, "checkout", "-b", "stack", "feat")
+    shas["s1"] = commit("s1.txt")
+    git(work, "checkout", "main")
+    return pygit2.Repository(str(work)), shas
+
+
+def _born(repo):
+    commits = gitread.commits(repo)
+    return gitread.born_on(repo, commits, gitread.head_branch(repo))
+
+
+def test_born_on_attributes_trunk_feature_and_stack(attributed):
+    repo, shas = attributed
+    by = _born(repo)
+    # the trunk line: pre-fork commits, main's own commit, and the merge
+    for name in ("m1", "m2", "m3", "merge"):
+        assert by[shas[name]] == "main", name
+    # the feature's commits stay the feature's, even after the merge…
+    assert by[shas["f1"]] == "feat" and by[shas["f2"]] == "feat"
+    # …and the branch stacked on it owns only its own commit
+    assert by[shas["s1"]] == "stack"
+
+
+def test_born_on_fast_forward_belongs_to_the_trunk_line(attributed):
+    repo, shas = attributed
+    work = repo.workdir
+    from pathlib import Path
+
+    w = Path(work)
+    git(w, "checkout", "-b", "ff-feat")
+    (w / "ff.txt").write_text("ff")
+    git(w, "add", ".")
+    git(w, "commit", "-m", "ff work")
+    sha = git(w, "rev-parse", "HEAD").stdout.strip()
+    git(w, "checkout", "main")
+    git(w, "merge", "--ff-only", "ff-feat")
+    # born on ff-feat per the reflog — but it is main's line now
+    assert _born(repo)[sha] == "main"
+
+
+def test_born_on_reflog_beats_tip_distance_ties(attributed):
+    repo, shas = attributed
+    from pathlib import Path
+
+    w = Path(repo.workdir)
+    # a second branch parked on feat's tip: same distance-0 claim, and it
+    # sorts BEFORE "feat" — only the reflog knows f2 was born on feat
+    git(w, "branch", "a-parked", "feat")
+    assert _born(repo)[shas["f2"]] == "feat"
+
+
+def test_born_on_survives_reflogless_repos(seeded):
+    """Bare server repos may have no reflogs at all — first-parent chains
+    still attribute the trunk and living branch tips."""
+    repo = gitread.open_repo(seeded, "app.git")
+    by = _born(repo)
+    commits = {c["sha"]: c["subject"] for c in gitread.commits(repo)}
+    subject_of = {v: k for k, v in commits.items()}
+    assert by[subject_of["merge side"]] == "main"
+    assert by[subject_of["side.txt"]] == "side"
+    assert by[subject_of["open.txt"]] == "open"
+    assert by[subject_of["linear-0.txt"]] == "main"

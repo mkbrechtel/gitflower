@@ -198,6 +198,61 @@ def commits(repo: pygit2.Repository, limit: int = 400) -> list[dict]:
     return result
 
 
+def born_on(repo: pygit2.Repository, commits: list[dict], default: str | None) -> dict[str, str]:
+    """Which branch each shown commit belongs to, best-effort.
+
+    Git erases "made on branch X" at commit time; two signals recover most
+    of it. Three layers, first claim wins:
+
+    1. the default branch's first-parent chain — that *is* the trunk, even
+       through fast-forwarded history (line identity beats birth identity);
+    2. reflog entries — a `commit:` (or `commit (merge/amend):`) update
+       records the sha's birth branch, and a real merge belongs to the
+       branch that performed it. Reflogs are server-local and expire, so
+       this only ever adds knowledge;
+    3. every tip's first-parent chain, nearest tip wins — stacked branches
+       resolve to the inner branch, whose tip sits closest.
+    """
+    shown = {c["sha"]: c for c in commits}
+    tips = _branch_tips(repo)
+    by: dict[str, str] = {}
+
+    def first_parents(sha: str):
+        while sha in shown:
+            yield sha
+            parents = shown[sha]["parents"]
+            sha = parents[0] if parents else ""
+
+    if default in tips:
+        for sha in first_parents(str(tips[default].id)):
+            by[sha] = default
+
+    for name in sorted(tips):
+        try:
+            log = repo.lookup_reference(f"refs/heads/{name}").log()
+        except (pygit2.GitError, KeyError, OSError):
+            continue
+        for entry in log:
+            message = entry.message or ""
+            born = message.startswith("commit") or ": Merge made by" in message
+            if not born:
+                continue  # pushes, fast-forwards, resets: not born here
+            sha = str(entry.oid_new)
+            if sha in shown and sha not in by:
+                by[sha] = name
+
+    nearest: dict[str, tuple[int, str]] = {}
+    for name in sorted(tips):
+        for distance, sha in enumerate(first_parents(str(tips[name].id))):
+            if sha in by:
+                continue  # claimed — but the chain continues through it
+            if sha not in nearest or (distance, name) < nearest[sha]:
+                nearest[sha] = (distance, name)
+    for sha, (_, name) in nearest.items():
+        by[sha] = name
+    return by
+
+
 def commit_count(repo: pygit2.Repository) -> int:
     tips = list(_branch_tips(repo).values())
     if not tips:

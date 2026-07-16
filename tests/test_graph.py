@@ -239,3 +239,58 @@ def test_empty_history():
     laid_out = graph.build([], tips=set())
     assert laid_out["rows"] == [] and laid_out["edges"] == []
     assert laid_out["height"] == 0 and laid_out["collapsed"] == 0
+
+
+def test_the_trunk_keeps_lane_zero_even_when_a_side_tip_is_newer():
+    commits = [
+        commit("s", "base"),  # side tip, newest — would grab lane 0 today
+        commit("m", "base"),  # the trunk's tip
+        commit("base"),
+    ]
+    branch_of = {"s": "side", "m": "main", "base": "main"}
+    rows = graph.build(commits, tips={"s", "m"}, branch_of=branch_of, trunk="main")["rows"]
+    at = {row["id"]: row for row in rows}
+    assert at["m"]["lane"] == 0 and at["base"]["lane"] == 0
+    assert at["s"]["lane"] == 1
+    # without attribution, the newest tip takes lane 0 (unchanged behavior)
+    rows = graph.build(commits, tips={"s", "m"})["rows"]
+    assert {row["id"]: row["lane"] for row in rows} == {"s": 0, "m": 1, "base": 0}
+
+
+def test_an_attributed_ancestor_lands_on_its_own_branch_line():
+    """The shared-ancestor fixture again: with `p` attributed to the
+    c-lineage's branch, its dot belongs on that line — the merge link
+    folds into it instead of claiming the dot for its corridor."""
+    commits = [
+        commit("m1", "m2", "c1"),
+        commit("m2", "t", "p"),
+        commit("c1", "c2"),
+        commit("c2", "p"),
+        commit("p", "t"),
+        commit("t"),
+    ]
+    branch_of = {"m1": "main", "m2": "main", "t": "main", "c1": "harness", "c2": "harness", "p": "harness"}
+    laid_out = graph.build(commits, tips={"m1"}, branch_of=branch_of, trunk="main")
+    assert_no_dot_pierced(laid_out)
+    at = {row["id"]: row for row in laid_out["rows"]}
+    assert at["p"]["lane"] == at["c2"]["lane"]  # the dot sits on its own line
+    # …while unattributed, the corridor (leftmost waiter) receives the dot
+    at = {r["id"]: r for r in graph.build(commits, tips={"m1"})["rows"]}
+    assert at["p"]["lane"] != at["c2"]["lane"]
+
+
+def test_branch_colors_are_stable_and_trunk_wears_the_accent():
+    commits = [
+        commit("s", "base"),
+        commit("m", "base"),
+        commit("base"),
+    ]
+    branch_of = {"s": "side", "m": "main", "base": "main"}
+    rows = graph.build(commits, tips={"s", "m"}, branch_of=branch_of, trunk="main")["rows"]
+    at = {row["id"]: row for row in rows}
+    assert at["m"]["color"] == graph.COLORS[0] == at["base"]["color"]
+    assert at["s"]["color"] != graph.COLORS[0]
+    assert at["s"]["color"] == graph._branch_color("side", "main", 99)  # lane-independent
+    # no attribution -> lane colors, exactly as before
+    rows = graph.build(commits, tips={"s", "m"})["rows"]
+    assert [row["color"] for row in rows] == [graph._color(row["lane"]) for row in rows]

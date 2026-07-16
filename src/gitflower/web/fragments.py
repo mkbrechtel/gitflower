@@ -117,6 +117,14 @@ GRAPH_CSS = """
 """
 
 
+def _on_branch(row: dict) -> str:
+    """Branch attribution as a tooltip + data attribute, when known."""
+    branch = row.get("branch")
+    if not branch:
+        return ""
+    return f' data-branch="{esc(branch)}" title="on {esc(branch)}"'
+
+
 def _graph_svg(graph: dict, repo_url: str, tips: dict, full: bool) -> str:
     """The commit graph: an SVG of lanes behind fixed-height rows (cyblox
     pattern). Edges carry data-lanes, rows data-lane — components.js uses
@@ -138,7 +146,7 @@ def _graph_svg(graph: dict, repo_url: str, tips: dict, full: bool) -> str:
                 f'fill="var(--bg)" stroke="{row["color"]}" stroke-width="1.6" stroke-dasharray="2 2"/>'
             )
             rows.append(
-                f'<li class="graph-row graph-gap" data-lane="{row["lane"]}">'
+                f'<li class="graph-row graph-gap" data-lane="{row["lane"]}"{_on_branch(row)}>'
                 f'<a href="{repo_url}?full=1">⋯ {row["count"]} commits</a>'
                 f'<span class="graph-when">{esc(row["last"]["date"][:10])} – {esc(row["first"]["date"][:10])}</span>'
                 "</li>"
@@ -154,7 +162,7 @@ def _graph_svg(graph: dict, repo_url: str, tips: dict, full: bool) -> str:
         )
         commit_url = f"{repo_url}/commit/{esc(commit['sha'])}"
         rows.append(
-            f'<li class="graph-row" data-lane="{row["lane"]}" id="c-{esc(commit["short"])}">'
+            f'<li class="graph-row" data-lane="{row["lane"]}"{_on_branch(row)} id="c-{esc(commit["short"])}">'
             f'<a class="graph-sha" href="{commit_url}"><code>{esc(commit["short"])}</code></a>{chips}'
             f'<span class="graph-subject"><a href="{commit_url}">{esc(commit["subject"])}</a></span>'
             f'<span class="graph-when">{esc(commit["author"])} · {esc(commit["date"][:10])}</span>'

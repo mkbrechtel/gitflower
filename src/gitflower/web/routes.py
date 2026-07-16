@@ -41,6 +41,7 @@ def _graph_model(g: dict) -> models.Graph:
             x=r["x"],
             y=r["y"],
             color=r["color"],
+            branch=r.get("branch"),
             commit=models.Commit(**r["commit"]) if "commit" in r else None,
             count=r.get("count"),
             first=models.Commit(**r["first"]) if "first" in r else None,
@@ -253,7 +254,14 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
         repo = repo_or_404(repo_path)
         commits = gitread.commits(repo, GRAPH_LIMIT)
         branches = [models.Branch(**b) for b in gitread.branches(repo)]
-        laid_out = graph.build(commits, {b.sha for b in branches}, collapse=not full)
+        trunk = gitread.head_branch(repo)
+        laid_out = graph.build(
+            commits,
+            {b.sha for b in branches},
+            collapse=not full,
+            branch_of=gitread.born_on(repo, commits, trunk),
+            trunk=trunk,
+        )
         data = models.RepoDetail(
             path=repo_path,
             branches=branches,

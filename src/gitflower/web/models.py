@@ -69,6 +69,7 @@ class GraphRow:
     x: float
     y: float
     color: str
+    branch: str | None = None
     commit: Commit | None = None
     count: int | None = None
     first: Commit | None = None
