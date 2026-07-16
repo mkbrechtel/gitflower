@@ -131,16 +131,26 @@ def _place(nodes: list[dict]) -> list[dict]:
 
 
 def _edges(rows: list[dict]) -> list[dict]:
-    """One path per parent link. A line that moves right (a lane opening for
-    a merge parent) bends immediately and then runs straight down its new
-    lane; a line that moves left (a branch rejoining) runs straight down its
-    own lane and bends into the parent at the very end. Either way the long
-    stretch sits in a lane of its own instead of crossing someone else's."""
+    """One path per parent link. Which end bends depends on who owns the lane
+    below the child:
+
+    * A **merge's extra parent** (`parents[1:]`) has to leave the child's lane
+      at once — the first parent keeps that lane going down, so anything else
+      lingering in it would draw straight over the first-parent line and any
+      commit sitting on it. So these bend immediately and then run straight
+      down the *target* lane. Lanes opening to the right (a fresh merge lane)
+      do the same.
+    * A **child rejoining its own parent** (its first/only parent, moving left)
+      owns its lane all the way down — nothing else is in it — so it runs
+      straight down that lane and bends into the parent at the very end.
+
+    Either way the long stretch sits in a lane of its own instead of running
+    over someone else's."""
     at = {row["id"]: row for row in rows}
     edges = []
     for row in rows:
         x0, y0 = _x(row["lane"]), _y(row["row"])
-        for parent in row["parents"]:
+        for index, parent in enumerate(row["parents"]):
             target = at.get(parent)
             if target is None:
                 # history is truncated here — a stub says "it goes on"
@@ -156,10 +166,13 @@ def _edges(rows: list[dict]) -> list[dict]:
             x1, y1 = _x(target["lane"]), _y(target["row"])
             if target["lane"] == row["lane"]:
                 d = f"M {x0},{y0} V {y1}"
-            elif target["lane"] > row["lane"]:
+            elif target["lane"] > row["lane"] or index > 0:
+                # opening right, or a merge's extra parent heading down-left:
+                # bend out of the child's lane now, then straight down the target
                 bend = y0 + ROW
                 d = f"M {x0},{y0} C {x0},{y0 + ROW / 2} {x1},{y0 + ROW / 2} {x1},{bend} V {y1}"
             else:
+                # the child's own line rejoining its parent: stay, bend at the end
                 bend = max(y0, y1 - ROW)
                 d = f"M {x0},{y0} V {bend} C {x0},{bend + ROW / 2} {x1},{bend + ROW / 2} {x1},{y1}"
             edges.append(
