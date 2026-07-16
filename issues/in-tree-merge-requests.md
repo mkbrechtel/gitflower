@@ -26,41 +26,45 @@ The review feature is specced separately ([`../docs/spec/dot-review-format.md`](
 
 **Conversation is commits plus `.review` files — nothing else.** The MR commit's message is the description. All further conversation — comments, questions, verdicts, approvals, machine check results — happens as `.review` events in commits on the reviews ref, following the on-tree `reviews/…` path convention of the dot-review spec. There is no separate manifest or discussion-file format.
 
+**MR commits are immutable — rework supersedes.** When a review requests changes, the author's new work gets a new MR commit on the extended line; the old MR's `/resolution` points at the superseding MR commit. Approvals never go stale, because each approval sits on top of exactly one immutable ancestry.
+
+**The hook keeps `/merger` fresh from both sides.** The candidate merge is recomputed against the mainline's tip (or the `MR@<branch>` target) whenever either side advances — a push to the MR or a push to the mainline.
+
+**The resolving merge merges the reviews tip.** A positive resolution merges `refs/mrs/<merge-id>/reviews` — the MR's ancestry plus its review commits — so the `.review` files, approvals, and machine notifications land in mainline history as a permanent record alongside the code.
+
+**The reviews ref is a single line.** Review commits stack linearly on top of the MR commit; concurrent submitters fetch, rebase, and retry like on any contested branch.
+
 **MR state is derived from the namespace, not stored.** Open: `mr` exists and `resolution` doesn't. Resolved: `resolution` exists — merged (a merge commit), closed (a `Closure:` commit), or superseded (a newer MR commit based on this one). Whether the candidate merge currently conflicts is read off the `merger` commit. There is no status field that could drift from reality.
 
 **Merge policy is configuration — stubbed for now.** Which approvals or machine checks an MR needs before it may merge is defined in gitflower's configuration. Initially this is a stub: the configuration surface exists, the enforcement is implemented later.
 
 ## Open questions
 
-### O1 — Where does the MR commit sit, and what happens on rework?
+### O1 — What does `/merger` merge?
 
-Presumably the empty MR commit tops the line of work to be merged, so its ancestry is exactly the content of the MR. When a review requests changes and the author produces more commits: does `/mr` advance to a new MR commit on the extended line, or does a fresh MR supersede this one (via `/resolution`)? This is also the approval-coverage question — reviews sit on top of a specific MR commit and cover exactly its ancestry, so whichever mechanism moves the content also decides what happens to existing approvals.
+The resolving merge takes the reviews tip, so consistency suggests the candidate merger does too — merging `refs/mrs/<merge-id>/reviews` into the mainline tip rather than the bare MR commit. Confirm, and decide whether a conflicted merger commit blocks anything (resolution, superseding) or is purely informational.
 
-### O2 — Who computes `/merger`, against what, and when?
+### O2 — Does a superseding MR inherit anything?
 
-The candidate merge needs something to merge into — with no formal target, presumably the mainline's current tip (or the `MR@<branch>` target). Is it recomputed by the hook on every push to the MR, on every advance of the mainline, or on demand? And does a conflicted merger commit block anything, or is it purely informational?
+A superseded MR's approvals cover the old ancestry by design and don't carry over — but does the new MR's namespace link back (beyond the old `/resolution` pointing forward), and should the web UI thread superseding MRs into one conversation?
 
-### O3 — Does the conversation reach the mainline?
-
-Reviews live on `refs/mrs/<merge-id>/reviews`, not on the merged line. Does the resolving merge include the reviews ref — bringing the `.review` files into mainline history as a permanent record — or does the conversation stay only in the MR namespace?
-
-### O4 — What is the shape of the reviews ref?
-
-A single stack of commits on top of the MR commit: how do concurrent reviewers append — fetch/rebase/push races, or merge commits within the reviews line? Do machine notifications (CI, linter) share the same line as human reviews, or get their own refs under the namespace?
-
-### O5 — Who may write which ref?
+### O3 — Who may write which ref?
 
 Permissions per namespace entry — for example: anyone with access may append to `/reviews`, only author or maintainer may set `/resolution`, only the hook writes `/mr` and `/merger`. Presumably part of the policy configuration; the stub should reserve room for it.
 
-### O6 — What does the policy stub look like?
+### O4 — What does the policy stub look like?
 
 Where the merge policy lives in the existing configuration (`branch_rules` workflow name, a policy list like `protected_branches`, or a new section), so the stub can be wired now and implemented later.
 
-### O7 — Web UI
+### O5 — Web UI
 
 Discovery is enumerating `refs/mrs/*/mr`. Still open: the list view's columns (summary, author, state, merger conflict status); and the detail view — description, the reviews rendered from the reviews ref, the candidate merger's diff, and the line of work the MR covers.
 
 # Considerations
+
+## Rejected in the ref-namespace refinement
+
+Advancing `/mr` to follow rework was rejected because it reintroduces approval staleness; rework commits on the reviews ref would conflate content with conversation. One-sided or on-demand merger computation trades away the always-fresh conflict signal. Keeping the conversation namespace-only would lose the permanent in-history record. Per-actor review refs and merge commits on the reviews line were passed over for the simpler single contested line.
 
 ## Superseded: branch-carried conversation
 
