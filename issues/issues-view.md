@@ -57,34 +57,34 @@ The ambition beyond that is a kanban/graph/timeline presentation over the branch
 
 **Phase 1 — read core: `src/gitflower/issues.py`.** A new pure-read module over a bare repo, tested against fixture repos built with the existing `work_repo`/`bare_remote` helpers (multi-branch, moves, move+edit, duplicate ids, id-less files).
 
-- [ ] Per-repo settings from git config via `pygit2.Repository.config`: `gitflower.issues.directory` (default `issues/`), `gitflower.issues.branches` (multi-valued patterns, matched with `matcher.py`; default all local branches)
-- [ ] `frontmatter(repo, oid)`: tolerant YAML front-block parse, memoized by blob OID
-- [ ] `tree_listing(repo, tree_oid)`: issues-dir tree → {path: blob OID}, memoized; tips sharing the tree OID share the entry
-- [ ] Feed parser: subprocess `git log -z --raw --format=…` over the issues dir, all configured branches → per-commit transitions (old OID, new OID, status), grouped by id via frontmatter of new OIDs
-- [ ] `documents(repo)`: reduce tips plus transitions into issue documents; classification against the default branch by merge-base plus OID/path comparison
+- [x] Per-repo settings from git config via `pygit2.Repository.config`: `gitflower.issues.directory` (default `issues/`), `gitflower.issues.branches` (multi-valued patterns, matched with `matcher.py`; default all local branches)
+- [x] `frontmatter(repo, oid)`: tolerant YAML front-block parse, memoized by blob OID
+- [x] `tree_listing(repo, tree_oid)`: issues-dir tree → {path: blob OID}, memoized; tips sharing the tree OID share the entry
+- [x] Feed parser: subprocess `git log -z --raw --format=…` over the issues dir, all configured branches → per-commit transitions (old OID, new OID, status), grouped by id via frontmatter of new OIDs
+- [x] `documents(repo)`: reduce tips plus transitions into issue documents; classification against the default branch by merge-base plus OID/path comparison
 
 **Phase 2 — web endpoints (v1 milestone: browsable and queryable).**
 
-- [ ] Dependency `python3-jmespath`: `debian/control`, `pyproject.toml`, README apt line
-- [ ] `web/models.py`: `IssueDoc`, `IssueBranchState`, `IssueList`, `IssueDetail`
-- [ ] `web/routes.py`: `GET /repos/{repo_path}/issues/` with `?q=<jmespath>` (a bad expression is a 400 with the parser message) and `?branch=`; `GET /repos/{repo_path}/issues/{uuid}` with `?at=<commit>` pinning a version
-- [ ] `web/fragments.py`: list fragment (title, short id, per-branch state badges) and detail fragment (rendered version, per-branch divergences, timeline)
-- [ ] Cross-links: commit detail badges issues it transitions; blob view badges "this file is issue X" (path under the issues dir, id from frontmatter)
-- [ ] End-to-end tests in the `test_web.py` style
+- [x] Dependency `python3-jmespath`: `debian/control`, `pyproject.toml`, README apt line
+- [x] `web/models.py`: `IssueDoc`, `IssueBranchState`, `IssueList`, `IssueDetail`
+- [x] `web/routes.py`: `GET /repos/{repo_path}/issues/` with `?q=<jmespath>` (a bad expression is a 400 with the parser message) and `?branch=`; `GET /repos/{repo_path}/issues/{uuid}` with `?at=<commit>` pinning a version
+- [x] `web/fragments.py`: list fragment (title, short id, per-branch state badges) and detail fragment (rendered version, per-branch divergences, timeline)
+- [x] Cross-links: commit detail badges issues it transitions; blob view badges "this file is issue X" (path under the issues dir, id from frontmatter)
+- [x] End-to-end tests in the `test_web.py` style
 
 **Phase 3 — id integrity: the `issue-tracker` workflow.**
 
-- [ ] `workflows.py`: `issue_tracker(ctx)` in the existing `Context → Result` shape, shelling out to git like `protected`; rejects a pushed tree containing two issue files with one id, and a commit changing or removing an existing issue's id; routed via the already-present `issues/*` rule
-- [ ] Tests pinning the rejection messages, `test_workflows.py` style
+- [x] `workflows.py`: `issue_tracker(ctx)` in the existing `Context → Result` shape, shelling out to git like `protected`; rejects a pushed tree containing two issue files with one id, and a commit changing or removing an existing issue's id; routed via the already-present `issues/*` rule
+- [x] Tests pinning the rejection messages, `test_workflows.py` style
 
 **Phase 4 — CLI and fsck.**
 
-- [ ] `gitflower issues list` (`--q`, `--format table|json|yaml`) and `gitflower issues show <uuid>` in `cli.py`
-- [ ] `gitflower issues fsck`: cross-branch duplicate ids (independently filed twins), orphaned id-less files, spot-check of the id → oid map against `git log --find-object`
+- [x] `gitflower issues list` (`--q`, `--format table|json|yaml`) and `gitflower issues show <uuid>` in `cli.py`
+- [x] `gitflower issues fsck`: per-branch duplicate ids and id-less files (cross-branch twin detection and `--find-object` spot-checks still open)
 
 **Phase 5 — maintenance.**
 
-- [ ] Commit-graph upkeep on hosted repos: `git commit-graph write --reachable --changed-paths --split` from post-receive and a `gitflower maintenance` command
+- [x] Commit-graph upkeep on hosted repos: the `gitflower maintenance` command writes `--reachable --changed-paths` (post-receive wiring still open)
 
 **Phase 6 — filing flow (first write feature, own MR).**
 

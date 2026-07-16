@@ -5,7 +5,7 @@ A git-based development platform — local-first, git-centric. A Python
 `python3-*` apt packages.
 
 ```bash
-sudo apt install python3-fastapi python3-click python3-pygit2 python3-yaml
+sudo apt install python3-fastapi python3-click python3-pygit2 python3-yaml python3-jmespath
 ```
 
 (That's the whole dependency list — plus `python3-pytest` for the tests.
@@ -43,6 +43,9 @@ protected_branches:
 
 **Repo hosting + web UI (global).** Bare repositories under a configured
 directory, browsable in the browser and clonable read-only over smart-HTTP.
+In-tree issues — markdown files under `issues/`, identified by an `id:` in
+their front matter — are browsable across branches at
+`/repos/<path>/issues/` and filterable with JMESPath.
 
 ```bash
 gitflower create myorg/myproject.git
