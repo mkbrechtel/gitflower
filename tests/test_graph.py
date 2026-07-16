@@ -66,6 +66,104 @@ def test_a_merge_opens_a_lane_that_closes_at_the_merge_base():
     assert not any(edge["stub"] for edge in laid_out["edges"])
 
 
+def _verticals(d: str) -> list[tuple[float, float, float]]:
+    """(x, y_top, y_bottom) of every straight vertical run in an edge path."""
+    tokens = d.replace(",", " ").split()
+    out, x, y, i = [], 0.0, 0.0, 0
+    while i < len(tokens):
+        if tokens[i] == "M":
+            x, y = float(tokens[i + 1]), float(tokens[i + 2])
+            i += 3
+        elif tokens[i] == "C":
+            x, y = float(tokens[i + 5]), float(tokens[i + 6])
+            i += 7
+        elif tokens[i] == "V":
+            y2 = float(tokens[i + 1])
+            out.append((x, min(y, y2), max(y, y2)))
+            y = y2
+            i += 2
+        else:
+            i += 1
+    return out
+
+
+def assert_no_dot_pierced(laid_out: dict) -> None:
+    """No edge's vertical stretch may run through a commit it does not
+    terminate at — a line must reach its parent's dot, not cross others."""
+    dots = [(row["x"], row["y"]) for row in laid_out["rows"]]
+    for edge in laid_out["edges"]:
+        for x, top, bottom in _verticals(edge["d"]):
+            for dx, dy in dots:
+                assert not (dx == x and top < dy < bottom), (edge["d"], dx, dy)
+
+
+def test_link_to_a_shared_ancestor_rides_a_corridor_beside_the_lineage():
+    """The cute-devops mail-stack shape: two merges share the ancestor `p`
+    through different parents — `m1`'s parent `c1` descends to `p`, while
+    `m2` points at `p` directly. The direct link must not ride the c-lineage
+    lane (through c1's and c2's dots); it gets a corridor inserted beside
+    the merge, and — being the leftmost lane waiting for `p` — the corridor
+    receives p's dot, so the link is the straight line into it."""
+    commits = [
+        commit("m1", "m2", "c1"),  # top merge (7335d3b)
+        commit("m2", "t", "p"),  # merge pointing at the old ancestor (1b05b47)
+        commit("c1", "c2"),  # the other parent's lineage… (6cda0af)
+        commit("c2", "p"),  # …which also descends to p
+        commit("p", "t"),  # the shared ancestor (e34046c)
+        commit("t"),
+    ]
+    laid_out = graph.build(commits, tips={"m1"})
+    assert_no_dot_pierced(laid_out)
+    at = {row["id"]: row for row in laid_out["rows"]}
+    # the corridor was inserted between the merge and the lineage
+    assert at["m2"]["lane"] == 0 and at["c1"]["lane"] == at["c2"]["lane"] == 2
+    assert at["p"]["lane"] == 1  # the corridor got the dot
+    # …and the m2→p link runs its whole stretch down the corridor
+    m2, p = at["m2"], at["p"]
+    (link,) = [
+        e
+        for e in laid_out["edges"]
+        if e["d"].startswith(f"M {m2['x']},{m2['y']} C") and e["d"].endswith(f"V {p['y']}")
+    ]
+    assert (graph._x(1), m2["y"] + graph.ROW, p["y"]) in _verticals(link["d"])
+
+
+def test_a_blocked_corridor_shift_falls_back_to_the_far_right():
+    """A branch mid-flight (dots already drawn) right of the merge pins its
+    lane: the corridor may not shift it, so it opens at the far right and
+    the link folds into the parent's dot over the last row."""
+    commits = [
+        commit("t1", "m"),  # trunk tip, lane 0
+        commit("b1", "b2"),  # a branch with dots on lane 1, still descending
+        commit("m", "t2", "p"),  # the merge: its corridor cannot shift lane 1
+        commit("b2", "p"),
+        commit("t2", "p"),
+        commit("p"),
+    ]
+    laid_out = graph.build(commits, tips={"t1", "b1"})
+    assert_no_dot_pierced(laid_out)
+    at = {row["id"]: row for row in laid_out["rows"]}
+    assert at["b1"]["lane"] == at["b2"]["lane"] == 1  # untouched by the merge
+    assert at["p"]["lane"] == 0
+    # the link rides the appended corridor (lane 2) and folds into p's dot
+    m, p = at["m"], at["p"]
+    (link,) = [e for e in laid_out["edges"] if f"{graph._x(2)}" in e["d"]]
+    assert link["d"].startswith(f"M {m['x']},{m['y']} C")
+    assert link["d"].endswith(f"{p['x']},{p['y']}")
+    assert 2 in link["lanes"]
+    # the dot-less corridor still counts into the width
+    assert laid_out["width"] == graph._x(2) + graph.PAD
+
+
+def test_existing_merge_fixtures_never_pierce_a_dot():
+    fixtures = [
+        [commit("m", "x", "y"), commit("x", "base"), commit("y", "base"), commit("base")],
+        [commit("a", "b", "f"), commit("f", "fp", "b"), commit("fp", "b"), commit("b")],
+    ]
+    for commits in fixtures:
+        assert_no_dot_pierced(graph.build(commits, tips={commits[0]["sha"]}))
+
+
 def test_merge_extra_parent_leaves_its_lane_before_the_first_parent_line():
     """A merge's second parent that points at an *older* commit down-and-left
     must bend out of the merge's lane at once. The first parent keeps that lane

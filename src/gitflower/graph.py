@@ -13,7 +13,10 @@ Two things happen here:
   interesting points — branch points, merges, tips — stay on one screen.
 * **lanes** — each node gets a column. A lane is "open" while some commit
   further down is still expected in it; a merge opens one lane per extra
-  parent, and a lane closes when its commit is reached.
+  parent, and a lane closes when its commit is reached. The lane opened for
+  an extra parent is the link's *corridor*: the edge rides it the whole way
+  and folds into the parent's dot at the end, so a parent link always
+  reaches its commit and never runs along another branch's line.
 """
 
 ROW = 26  # px per row; the CSS row height must match, or dots drift off rows
@@ -108,49 +111,102 @@ def _free_lane(lanes: list[str | None]) -> int:
 
 
 def _place(nodes: list[dict]) -> list[dict]:
-    """Assign every node a row and a lane, walking newest to oldest."""
+    """Assign every node a row and a lane, walking newest to oldest — and
+    record, for every merge's extra parent, the **corridor**: the lane its
+    link line travels. A lane that is waiting for a sha never receives any
+    other commit, so a corridor is collision-free by construction; _edges
+    routes the link down it and folds into the parent's dot at the end.
+
+    A fresh corridor is inserted directly beside the child whenever the
+    lanes it would shift hold nothing drawn yet — the link then runs
+    parallel to its neighbours instead of crossing them."""
     lanes: list[str | None] = []  # lane -> the sha it is waiting for
-    rows = []
+    fresh: list[int | None] = []  # reserved-at row, while no dot sits on the lane
+    pending: list[list] = []  # [child row dict, parent sha, corridor lane]
+    rows: list[dict] = []
+
+    def free_lane() -> int:
+        lane = _free_lane(lanes)
+        if lane == len(fresh):
+            fresh.append(None)
+        return lane
+
+    def corridor_lane(after: int) -> int:
+        """A lane for a new parent link: right beside the child when the
+        shift moves nothing already drawn, else the leftmost free lane
+        beyond it, else the far right."""
+        pos = after + 1
+
+        def clean(i: int) -> bool:
+            # shifting lane i to column i+1 must not put its pending
+            # stretch across dots already drawn in that column
+            if lanes[i] is None:
+                return True
+            if fresh[i] is None:
+                return False  # a drawn line continues below a dot: pinned
+            return not any(r["lane"] == i + 1 and r["row"] >= fresh[i] for r in rows)
+
+        if all(clean(i) for i in range(pos, len(lanes))):
+            lanes.insert(pos, None)
+            fresh.insert(pos, None)
+            for link in pending:
+                if link[2] >= pos:
+                    link[2] += 1
+            return pos
+        for i in range(pos, len(lanes)):
+            if lanes[i] is None:
+                return i
+        lanes.append(None)
+        fresh.append(None)
+        return len(lanes) - 1
+
     for row, node in enumerate(nodes):
         waiting = [i for i, expected in enumerate(lanes) if expected == node["id"]]
         if waiting:
             lane = waiting[0]
             for merged_in in waiting[1:]:
                 lanes[merged_in] = None  # those branches end here
+                fresh[merged_in] = None
         else:
-            lane = _free_lane(lanes)  # a tip: nothing was expecting it
+            lane = free_lane()  # a tip: nothing was expecting it
 
+        # links waiting for this commit now know their final corridor
+        for link in pending:
+            if link[1] == node["id"]:
+                link[0]["corridors"][link[1]] = link[2]
+        pending = [link for link in pending if link[1] != node["id"]]
+
+        placed = {**node, "row": row, "lane": lane, "corridors": {}}
         parents = node["parents"]
         lanes[lane] = parents[0] if parents else None
+        fresh[lane] = None  # a dot sits here; the stretch below hangs off it
         for parent in parents[1:]:  # a merge forks a lane per extra parent
-            if parent not in lanes:
-                lanes[_free_lane(lanes)] = parent
+            if parent in lanes:
+                corridor = lanes.index(parent)  # ride the parent's own line
+            else:
+                corridor = corridor_lane(lane)
+                lanes[corridor] = parent
+                fresh[corridor] = row
+            pending.append([placed, parent, corridor])
 
-        rows.append({**node, "row": row, "lane": lane})
+        rows.append(placed)
     return rows
 
 
 def _edges(rows: list[dict]) -> list[dict]:
-    """One path per parent link. Which end bends depends on who owns the lane
-    below the child:
-
-    * A **merge's extra parent** (`parents[1:]`) has to leave the child's lane
-      at once — the first parent keeps that lane going down, so anything else
-      lingering in it would draw straight over the first-parent line and any
-      commit sitting on it. So these bend immediately and then run straight
-      down the *target* lane. Lanes opening to the right (a fresh merge lane)
-      do the same.
-    * A **child rejoining its own parent** (its first/only parent, moving left)
-      owns its lane all the way down — nothing else is in it — so it runs
-      straight down that lane and bends into the parent at the very end.
-
-    Either way the long stretch sits in a lane of its own instead of running
-    over someone else's."""
+    """One path per parent link, routed through the link's **corridor** — the
+    lane _place reserved for it. A merge's extra parent leaves the child's
+    lane within the first row, runs the whole distance down the corridor
+    (a waiting lane never carries another commit, so the stretch is clear),
+    and folds into the parent's dot within the last row. A commit rejoining
+    its own first parent already owns its lane, so it runs straight down and
+    bends into the parent at the very end. The link line therefore always
+    reaches the parent's dot — never another branch's line."""
     at = {row["id"]: row for row in rows}
     edges = []
     for row in rows:
         x0, y0 = _x(row["lane"]), _y(row["row"])
-        for index, parent in enumerate(row["parents"]):
+        for parent in row["parents"]:
             target = at.get(parent)
             if target is None:
                 # history is truncated here — a stub says "it goes on"
@@ -163,23 +219,37 @@ def _edges(rows: list[dict]) -> list[dict]:
                     }
                 )
                 continue
+            corridor = row["corridors"].get(parent, row["lane"])
             x1, y1 = _x(target["lane"]), _y(target["row"])
-            if target["lane"] == row["lane"]:
-                d = f"M {x0},{y0} V {y1}"
-            elif target["lane"] > row["lane"] or index > 0:
-                # opening right, or a merge's extra parent heading down-left:
-                # bend out of the child's lane now, then straight down the target
+            xc = _x(corridor)
+            if corridor == row["lane"]:
+                if target["lane"] == row["lane"]:
+                    d = f"M {x0},{y0} V {y1}"
+                else:
+                    # the child's own line rejoining its parent: straight
+                    # down, bend at the very end
+                    bend = max(y0, y1 - ROW)
+                    d = f"M {x0},{y0} V {bend} C {x0},{bend + ROW / 2} {x1},{bend + ROW / 2} {x1},{y1}"
+            elif corridor == target["lane"]:
+                # the parent sits at the corridor's foot: bend out, run down
                 bend = y0 + ROW
-                d = f"M {x0},{y0} C {x0},{y0 + ROW / 2} {x1},{y0 + ROW / 2} {x1},{bend} V {y1}"
+                d = f"M {x0},{y0} C {x0},{y0 + ROW / 2} {xc},{y0 + ROW / 2} {xc},{bend} V {y1}"
+            elif y1 - y0 <= ROW:
+                # adjacent rows leave no room for a corridor: one direct bend
+                d = f"M {x0},{y0} C {x0},{y0 + ROW / 2} {x1},{y0 + ROW / 2} {x1},{y1}"
             else:
-                # the child's own line rejoining its parent: stay, bend at the end
-                bend = max(y0, y1 - ROW)
-                d = f"M {x0},{y0} V {bend} C {x0},{bend + ROW / 2} {x1},{bend + ROW / 2} {x1},{y1}"
+                # the parent landed on another lane: bend out, ride the
+                # corridor, fold into the dot over the last row
+                out, fold = y0 + ROW, y1 - ROW
+                d = (
+                    f"M {x0},{y0} C {x0},{y0 + ROW / 2} {xc},{y0 + ROW / 2} {xc},{out}"
+                    f" V {fold} C {xc},{fold + ROW / 2} {x1},{fold + ROW / 2} {x1},{y1}"
+                )
             edges.append(
                 {
                     "d": d,
-                    "color": _color(max(row["lane"], target["lane"])),
-                    "lanes": sorted({row["lane"], target["lane"]}),
+                    "color": _color(corridor),
+                    "lanes": sorted({row["lane"], corridor, target["lane"]}),
                     "stub": False,
                 }
             )
@@ -195,10 +265,15 @@ def build(commits: list[dict], tips: set[str], collapse: bool = True) -> dict:
         row["x"] = _x(row["lane"])
         row["y"] = _y(row["row"])
         row["color"] = _color(row["lane"])
-    width = _x(max((row["lane"] for row in rows), default=0)) + PAD
+    edges = _edges(rows)
+    # a corridor can be the rightmost lane while carrying no dots
+    lanes_used = [row["lane"] for row in rows]
+    for edge in edges:
+        lanes_used.extend(edge["lanes"])
+    width = _x(max(lanes_used, default=0)) + PAD
     return {
         "rows": rows,
-        "edges": _edges(rows),
+        "edges": edges,
         "width": width,
         "height": len(rows) * ROW,
         "row_height": ROW,
