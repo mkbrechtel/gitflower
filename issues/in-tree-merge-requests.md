@@ -31,6 +31,69 @@ The review feature is specced separately ([`../docs/spec/dot-review-format.md`](
 
 **Checks and reviews cover the merged result.** Because the merger phase precedes them, machine checks and human review examine the tree after merging into the target — so mechanical modifications and merge effects are checked and reviewed too, not just the author's work.
 
+**The merger's target may be an integration branch.** The merge need not go to the mainline directly: the merger can target an integration branch (`integration`, `trunk`, `dev`), from which the work reaches the mainline over a longer line. This is especially interesting when working with stacked commits — a stacked MR's merger merges into an integration branch that already contains the MRs below it in the stack, so the stack unwinds release by release without rebasing.
+
+## Graphs
+
+A successful pipeline run, with the merger targeting an integration branch:
+
+```
+main        integration      MR pipeline chain (refs/mrs/<merge-id>/…)
+────        ───────────      ────────────────────────────────────────
+
+M0
+ \
+  `──────── I0
+ │           \
+ │            `────────────── W1  author's work, based on I0
+ │           │                │
+ │           │                W2
+ │           │                │
+ │           │                R   /request         "MR: <summary>", empty commit
+ │           │                │
+ │           │                B   /modifications   e.g. version bump by a release bot
+ │           │                │
+ │           ├──────────────► G   /merger          merge commit: parents B and I0
+ │           │                │
+ │           │                C   /checks          CI and linter results
+ │           │                │
+ │           │                V   /reviews         reviews and approvals
+ │           │                │
+ │           I1 ◄─────────────'   /release         integration advances (exact shape: O2)
+ │           │
+ M1 ◄────────'                    later: integration merges into main over a longer line
+ │
+```
+
+Stacked MRs: MR₂'s work is based on MR₁'s work; once MR₁ releases, MR₂'s merger merges an integration tip that already contains MR₁:
+
+```
+integration       MR₁ chain               MR₂ chain (stacked on MR₁'s work)
+───────────       ─────────               ────────────────────────────────
+
+I0
+ \
+  `─────────────── A1  work
+ │                 │
+ │                 A2
+ │                 │ \
+ │                 │  `─────────────────── B1  work, based on A2
+ │                 R₁  /request            │
+ │                 │                       B2
+ │                 ⋮   /modifications,     │
+ ├───────────────► ⋮   /merger (I0),       R₂  /request
+ │                 ⋮   /checks, /reviews   │
+ │                 │                       ⋮   /modifications
+ I1 ◄──────────────'   /release            │
+ │                                         │
+ ├───────────────────────────────────────► G₂  /merger — merges I1, which already
+ │                                         │   contains MR₁: the stack unwinds
+ │                                         ⋮   /checks, /reviews on the merged tree
+ │                                         │
+ I2 ◄──────────────────────────────────────'   /release
+ │
+```
+
 **Conversation is commits plus `.review` files — nothing else.** The MR commit's message is the description. Reviews, approvals, and machine check results are `.review` events in commits on the chain, following the on-tree `reviews/…` path convention of the dot-review spec; modification commits may change any part of the tree. There is no separate manifest or discussion-file format.
 
 **Request commits are immutable — rework supersedes.** When a review requests changes, the author's new work gets a new MR commit; the old MR's `/resolution` points at the superseding request. Approvals never go stale, because each approval sits on top of exactly one immutable chain.
@@ -69,7 +132,11 @@ Deleting in-tree review and check files at merge time: always, by policy, or at 
 
 Where the merge policy lives in the existing configuration (`branch_rules` workflow name, a policy list like `protected_branches`, or a new section), so the stub can be wired now and implemented later.
 
-### O7 — Web UI
+### O7 — Stacked MRs and pipeline ordering
+
+A stacked MR's merger only makes sense against an integration tip that already contains the MRs below it in the stack. Does the stacked MR's pipeline wait at the merger phase until its base MR releases, and what happens to the stack when a base MR is refused — cascade refusal, or re-merger against the tip without it?
+
+### O8 — Web UI
 
 Discovery is enumerating `refs/mrs/*/request`. The pipeline suggests the rendering: the MR as a stage view (request → modifications → merger → checks → reviews → release), each stage showing its segment of the chain. Still open: the list view's columns (summary, author, phase, conflict state) and how the detail view presents the diff to be merged versus the conversation.
 
