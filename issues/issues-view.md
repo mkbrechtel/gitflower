@@ -25,6 +25,8 @@ gitflower gets a per-repo issues view. Issues are plain markdown files in the re
 
 ## Implementation
 
+The id → oid map — which blob OIDs carry which issue uuid — is the one relation git cannot answer itself, at any speed: uuids live inside blob content, and git indexes names and hashes, never content. This map is the core of the index; every other relation (oid → introducing commits, containment, classification) git computes fast, so it is queried live and cached only if measurements demand it.
+
 **History walks are git subprocesses; object reads are pygit2.** `git log --raw --all -- <issues-dir>` emits the complete transitions feed: every commit that touched the issues directory, with old and new blob OID, status, and OID-exact renames per file. The indexer parses this feed, resolves each new OID's frontmatter, and groups transitions by issue id. Frontmatter parsing is memoized by blob OID and never invalidates — OIDs are immutable. Shelling out to git follows the existing smart-HTTP pattern.
 
 **Commit-graph maintenance.** gitflower hosts the bare repos and keeps `git commit-graph write --reachable --changed-paths` fresh (post-receive or `git maintenance`). The changed-path Bloom filters let the path-scoped walk skip commits that didn't touch the issues directory without computing a diff; generation numbers speed up merge-base and containment queries.
@@ -79,6 +81,10 @@ Tools like git-bug and git-appraise store issues as structured objects in their 
 ## No git-side oid → commit index
 
 `git log --find-object=<oid>` answers "which commits introduced this blob" but as a filtered full-history walk per query. Git's two acceleration structures don't cover it: changed-path Bloom filters are keyed by path, not OID, and pack bitmaps answer reachability, not introduction. The design sidesteps this by always walking path-scoped (Bloom-accelerated) and reading the OIDs from the `--raw` output, recording transitions at index time so oid → commit becomes a lookup.
+
+## No in-object queries in git
+
+Git's two content-aware queries were evaluated for id → oid and both fall short. `git grep <uuid> <tip> -- issues/` answers only the present, per tip. Pickaxe (`git log -S<uuid>`) is an unindexed full-history walk that reports occurrence-count changes only: it finds the filing commit but not edits (the uuid's count is unchanged) and, with rename detection on by default, not even moves. Hence the id → oid map is built and owned by gitflower.
 
 ## Subprocess git over pygit2 for history walks
 
