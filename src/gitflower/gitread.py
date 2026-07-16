@@ -326,6 +326,7 @@ def blob(repo: pygit2.Repository, ref: str, path: str) -> dict:
         raise GitReadError(f"not a file: {path}")
     return {
         "path": path,
+        "oid": str(obj.id),
         "size": obj.size,
         "is_binary": obj.is_binary,
         "data": obj.data,

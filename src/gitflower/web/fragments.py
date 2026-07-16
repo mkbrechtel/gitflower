@@ -6,6 +6,8 @@ an HTML fragment wrapped in a declarative shadow root (see html.view), so its
 in gitflower.css — custom properties pierce the shadow boundary; rules don't.
 """
 
+import yaml
+
 from gitflower.web.html import esc, view
 
 # style snippets shared by several fragments (still emitted per-fragment —
@@ -261,10 +263,21 @@ def blob(data: dict) -> str:
     else:
         content = f"<pre>{esc(data['content'])}</pre>"
     raw = f"{url}/tree/{ref}/{esc(data['subpath'])}?format=raw"
+    issue_badge = ""
+    if data.get("issue"):
+        link = data["issue"]
+        if link["id"]:
+            issue_badge = (
+                f'<p class="dim">this file is issue '
+                f'<a href="{url}/issues/{esc(link["id"])}">{esc(link["title"])}</a></p>'
+            )
+        else:
+            issue_badge = f'<p class="dim">this file is issue {esc(link["title"])} (no id)</p>'
     body = f"""
 {_crumbs(("repos", "/repos/"), (data["path"], url), (data["ref"], f"{url}/tree/{ref}/"), (data["subpath"], None))}
 <h1>{esc(data["subpath"])} <span class="dim">@ {ref}</span></h1>
 <p class="dim">{_size(data["size"])} · <a href="{raw}">raw</a></p>
+{issue_badge}
 {content}
 """
     return view(BASE_CSS, body)
@@ -401,11 +414,21 @@ def commit(data: dict) -> str:
         if data["files"]
         else '<p class="empty">No changes to display.</p>'
     )
+    issue_links = ""
+    if data.get("issues"):
+        links = ", ".join(
+            f'<a href="{url}/issues/{esc(link["id"])}">{esc(link["title"])}</a>'
+            if link["id"]
+            else esc(link["title"])
+            for link in data["issues"]
+        )
+        issue_links = f'<p class="dim">issues touched: {links}</p>'
     body = f"""
 {_crumbs(("repos", "/repos/"), (data["path"], url), (data["short"], None))}
 <h1>{esc(data["subject"])}</h1>
 {_commit_meta(url, data, parents)}
 {_message_body(data)}
+{issue_links}
 {tabs}
 <h2>Changes</h2>
 {changes}
@@ -603,6 +626,125 @@ def merge(data: dict) -> str:
 {sections}
 """
     return view(BASE_CSS + DIFF_CSS + TABS_CSS + MERGE_CSS, body)
+
+
+ISSUES_CSS = """
+.state { font-family: var(--mono); font-size: 0.72rem; padding: 0 0.4em; border-radius: 8px; border: 1px solid var(--border); color: var(--fg-dim); white-space: nowrap; }
+.state-added { color: var(--diff-add); border-color: var(--diff-add); }
+.state-deleted { color: var(--diff-del); border-color: var(--diff-del); }
+.state-modified, .state-moved { color: var(--accent); border-color: var(--accent); }
+.qform { display: flex; gap: 0.5rem; margin: 0 0 1rem; }
+.qform input { flex: 1; font-family: var(--mono); font-size: 0.85rem; padding: 0.35rem 0.6rem; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
+.qform button { font-size: 0.85rem; padding: 0.35rem 0.9rem; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.issue-id code { font-size: 0.75rem; }
+"""
+
+
+def _state_badges(url: str, doc: dict, default_branch: str | None) -> str:
+    badges = []
+    for branch, state in sorted(doc["branches"].items()):
+        if branch == default_branch and state["state"] == "same":
+            continue  # presence on the default branch is the unremarkable case
+        badges.append(
+            f'<span class="state state-{esc(state["state"])}">{esc(branch)}: {esc(state["state"])}</span>'
+        )
+    return " ".join(badges)
+
+
+def issues(data: dict) -> str:
+    url = _repo_url(data["path"])
+    q = data.get("query") or ""
+    scope = (
+        f'<input type="hidden" name="branch" value="{esc(data["branch"])}">'
+        if data.get("branch")
+        else ""
+    )
+    rows = []
+    for doc in data["issues"]:
+        if doc["id"]:
+            title = f'<a href="{url}/issues/{esc(doc["id"])}">{esc(doc["title"])}</a>'
+            ident = f'<code>{esc(doc["id"][:8])}</code>'
+        else:
+            title = esc(doc["title"])
+            ident = '<span class="dim">no id</span>'
+        default = doc["branches"].get(data["default_branch"] or "")
+        where = esc(default["path"]) if default else ""
+        rows.append(
+            f'<tr><td>{title}</td><td class="issue-id">{ident}</td>'
+            f'<td class="dim">{where}</td>'
+            f'<td>{_state_badges(url, doc, data["default_branch"])}</td></tr>'
+        )
+    table = (
+        "<table><thead><tr><th>issue</th><th>id</th><th>path</th>"
+        "<th>across branches</th></tr></thead>"
+        f'<tbody>{"".join(rows)}</tbody></table>'
+        if rows
+        else '<p class="empty">No issues found. Issues are markdown files under the issues directory.</p>'
+    )
+    body = f"""
+{_crumbs(("repos", "/repos/"), (data["path"], url), ("issues", None))}
+<h1>{esc(data["path"])} <span class="dim">issues</span></h1>
+<form class="qform" method="get" action="{url}/issues/">
+<input type="text" name="q" value="{esc(q)}" placeholder="JMESPath, e.g. [?frontmatter.status=='open']">{scope}
+<button>filter</button>
+</form>
+{table}
+"""
+    return view(BASE_CSS + ISSUES_CSS, body)
+
+
+def issue(data: dict) -> str:
+    url = _repo_url(data["path"])
+    branch_rows = []
+    for branch, state in sorted(data["branches"].items()):
+        tree_link = f'{url}/tree/{esc(branch)}/{esc(state["path"])}'
+        branch_rows.append(
+            f'<tr><td>{esc(branch)}</td>'
+            f'<td><span class="state state-{esc(state["state"])}">{esc(state["state"])}</span></td>'
+            f'<td><a href="{tree_link}">{esc(state["path"])}</a></td>'
+            f'<td class="dim"><code>{esc(state["oid"][:7])}</code></td></tr>'
+        )
+    transitions = []
+    for t in data["transitions"]:
+        pin = f'{url}/issues/{esc(data["id"] or "")}?at={esc(t["sha"])}'
+        version = (
+            f'<a href="{pin}"><code>{esc(t["new_oid"][:7])}</code></a>'
+            if t["new_oid"] != "0" * 40
+            else '<span class="dim">deleted</span>'
+        )
+        transitions.append(
+            f'<tr><td><a href="{url}/commit/{esc(t["sha"])}"><code>{esc(t["short"])}</code></a></td>'
+            f'<td>{esc(t["subject"])}</td>'
+            f'<td><span class="state state-{esc(t["status"])}">{esc(t["status"])}</span> {esc(t["path"])}</td>'
+            f'<td>{version}</td>'
+            f'<td class="dim">{esc(t["date"][:10])}</td></tr>'
+        )
+    shown = (
+        f'pinned at <code>{esc(data["at"])}</code>'
+        if data.get("at")
+        else f'on <code>{esc(data["shown_branch"] or "")}</code>'
+    )
+    front = (
+        f"<pre>{esc(yaml.safe_dump(data['frontmatter'], sort_keys=False))}</pre>"
+        if data["frontmatter"]
+        else '<p class="empty">No front matter.</p>'
+    )
+    body = f"""
+{_crumbs(("repos", "/repos/"), (data["path"], url), ("issues", f"{url}/issues/"), (data["title"], None))}
+<h1>{esc(data["title"])}</h1>
+<p class="dim">id <code>{esc(data["id"] or "none")}</code> · showing {shown} at <code>{esc(data["shown_path"])}</code></p>
+<h2>Content</h2>
+<pre>{esc(data["content"])}</pre>
+<h2>Front matter</h2>
+{front}
+<h2>Across branches</h2>
+<table><thead><tr><th>branch</th><th>state</th><th>path</th><th>version</th></tr></thead>
+<tbody>{"".join(branch_rows)}</tbody></table>
+<h2>History</h2>
+<table><thead><tr><th>commit</th><th>subject</th><th>change</th><th>version</th><th>date</th></tr></thead>
+<tbody>{"".join(transitions)}</tbody></table>
+"""
+    return view(BASE_CSS + ISSUES_CSS, body)
 
 
 def docs(data: dict) -> str:

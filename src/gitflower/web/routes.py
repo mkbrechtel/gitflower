@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
 
-from gitflower import gitread, graph
+from gitflower import gitread, graph, issues as issuestore
 from gitflower.config import GlobalConfig
 from gitflower.slug import SlugError, validate_org_folder, validate_repo_path
 from gitflower.web import fragments, models, smarthttp
@@ -139,6 +139,7 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
             if found["is_binary"]:
                 return Response(raw, media_type="application/octet-stream")
             return PlainTextResponse(raw)
+        badge = issuestore.issue_for_blob(repo, subpath, found["oid"])
         data = models.BlobView(
             path=repo_path,
             ref=ref,
@@ -146,6 +147,7 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
             size=found["size"],
             is_binary=found["is_binary"],
             content="" if found["is_binary"] else raw.decode("utf-8", errors="replace"),
+            issue=models.IssueLink(**badge) if badge else None,
         )
         return respond(request, data, fragments.blob, f"{repo_path}: {subpath}")
 
@@ -191,6 +193,7 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
             patch=detail["patch"],
             path=repo_path,
             diff_parent=detail["diff_parent"],
+            issues=[models.IssueLink(**link) for link in issuestore.issues_for_commit(repo, sha)],
         )
         return respond(request, data, fragments.commit, f"{repo_path}: {detail['short']}")
 
@@ -238,6 +241,78 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
             full=full,
         )
         return respond(request, data, fragments.merge, f"{repo_path}: {detail['short']}")
+
+    def _issue_doc(doc: dict) -> models.IssueDoc:
+        return models.IssueDoc(
+            key=doc["key"],
+            id=doc["id"],
+            title=doc["title"],
+            frontmatter=doc["frontmatter"],
+            branches={
+                name: models.IssueBranchState(**state)
+                for name, state in doc["branches"].items()
+            },
+        )
+
+    @router.get(
+        "/repos/{repo_path:path}/issues/",
+        response_model=models.IssueList,
+        summary="Issues across branches: markdown files under the issues directory, "
+        "one document per id, each branch's version classified against the "
+        "default branch. ?q=<JMESPath> filters the documents; ?branch= scopes.",
+    )
+    def issue_list(
+        request: Request, repo_path: str, q: str | None = None, branch: str | None = None
+    ) -> Response:
+        repo = repo_or_404(_validated(repo_path))
+        data = issuestore.documents(repo)
+        docs = data["issues"]
+        if branch:
+            docs = [d for d in docs if branch in d["branches"]]
+        if q:
+            try:
+                docs = issuestore.filter_documents(docs, q)
+            except issuestore.QueryError as exc:
+                raise HTTPException(400, str(exc))
+        model = models.IssueList(
+            path=repo_path,
+            default_branch=data["default_branch"],
+            branches=data["branches"],
+            issues=[_issue_doc(d) for d in docs],
+            query=q,
+            branch=branch,
+        )
+        return respond(request, model, fragments.issues, f"{repo_path}: issues")
+
+    @router.get(
+        "/repos/{repo_path:path}/issues/{uuid}",
+        response_model=models.IssueDetail,
+        summary="One issue by its id: versions per branch, transition history, "
+        "and the shown version's content. ?at=<commit> pins the version.",
+    )
+    def issue_detail(
+        request: Request, repo_path: str, uuid: str, at: str | None = None
+    ) -> Response:
+        repo = repo_or_404(_validated(repo_path))
+        detail = issuestore.issue_detail(repo, uuid, at=at)
+        if detail is None:
+            raise HTTPException(404, f"no issue with id {uuid}" + (f" at {at}" if at else ""))
+        doc = _issue_doc(detail)
+        model = models.IssueDetail(
+            path=repo_path,
+            key=doc.key,
+            id=doc.id,
+            title=doc.title,
+            frontmatter=doc.frontmatter,
+            branches=doc.branches,
+            transitions=[models.IssueTransition(**t) for t in detail["transitions"]],
+            content=detail["content"],
+            shown_oid=detail["shown_oid"],
+            shown_path=detail["shown_path"],
+            shown_branch=detail["shown_branch"],
+            at=at,
+        )
+        return respond(request, model, fragments.issue, f"{repo_path}: {doc.title}")
 
     @router.get(
         "/repos/{rest:path}",
