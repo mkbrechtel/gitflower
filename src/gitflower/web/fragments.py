@@ -309,6 +309,56 @@ def _colorize_patch(patch: str) -> str:
     return "\n".join(lines)
 
 
+TABS_CSS = """
+.tabs { display: flex; margin: 1.2rem 0 0.4rem; border: 1px solid var(--border); border-radius: 6px; overflow-x: auto; width: max-content; max-width: 100%; font-size: 0.85rem; }
+.tabs a { padding: 0.4rem 0.9rem; color: var(--fg); border-right: 1px solid var(--border); white-space: nowrap; }
+.tabs a:last-child { border-right: none; }
+.tabs a:hover { background: var(--code-bg); text-decoration: none; }
+.tabs a.on { background: var(--code-bg); color: var(--accent); font-weight: 600; }
+"""
+
+
+def _commit_meta(url: str, data: dict, parents_html: str) -> str:
+    committer = ""
+    if (data["committer"], data["committer_email"]) != (data["author"], data["author_email"]):
+        committer = (
+            "<dt>committer</dt>"
+            f'<dd>{esc(data["committer"])} &lt;{esc(data["committer_email"])}&gt;</dd>'
+        )
+    return f"""
+<dl class="meta">
+<dt>author</dt><dd>{esc(data["author"])} &lt;{esc(data["author_email"])}&gt; · {esc(data["date"])}</dd>
+{committer}
+<dt>commit</dt><dd><a href="{url}/commit/{esc(data["sha"])}"><code>{esc(data["sha"])}</code></a></dd>
+<dt>parents</dt><dd>{parents_html}</dd>
+<dt>tree</dt><dd><a href="{url}/tree/{esc(data["sha"])}/">browse the repository at this commit</a></dd>
+</dl>
+"""
+
+
+def _message_body(data: dict) -> str:
+    # the message body beyond the subject line, if there is one
+    body_text = data["message"].strip()
+    body_text = body_text[len(data["subject"]):].strip() if body_text.startswith(data["subject"]) else body_text
+    return f"<pre>{esc(body_text)}</pre>" if body_text else ""
+
+
+def _tab(label: str, href: str, on: bool) -> str:
+    cls = ' class="on"' if on else ""
+    return f'<a{cls} href="{href}">{label}</a>'
+
+
+def _parent_tabs(url: str, sha: str, parents: list[tuple[str, str]], active: int) -> str:
+    """The merge-commit view switcher: 0 = side-by-side, N = diff vs parent N."""
+    base = f"{url}/commit/{esc(sha)}"
+    tabs = [_tab("side by side", base, active == 0)]
+    for i, (_psha, short) in enumerate(parents, 1):
+        tabs.append(
+            _tab(f"diff vs parent {i} <code>{esc(short)}</code>", f"{base}?parent={i}", active == i)
+        )
+    return f'<nav class="tabs">{"".join(tabs)}</nav>'
+
+
 def commit(data: dict) -> str:
     url = _repo_url(data["path"])
     parents = (
@@ -318,25 +368,14 @@ def commit(data: dict) -> str:
         )
         or '<span class="dim">none (initial commit)</span>'
     )
-    committer = ""
-    if (data["committer"], data["committer_email"]) != (data["author"], data["author_email"]):
-        committer = (
-            "<dt>committer</dt>"
-            f'<dd>{esc(data["committer"])} &lt;{esc(data["committer_email"])}&gt;</dd>'
+    tabs = ""
+    if len(data["parents"]) > 1:
+        active = data["diff_parent"]
+        pairs = [(p, p[:7]) for p in data["parents"]]
+        tabs = _parent_tabs(url, data["sha"], pairs, active) + (
+            f'<p class="dim">Showing changes against parent {active} '
+            f"<code>{esc(pairs[active - 1][1])}</code>.</p>"
         )
-    meta = f"""
-<dl class="meta">
-<dt>author</dt><dd>{esc(data["author"])} &lt;{esc(data["author_email"])}&gt; · {esc(data["date"])}</dd>
-{committer}
-<dt>commit</dt><dd><a href="{url}/commit/{esc(data["sha"])}"><code>{esc(data["sha"])}</code></a></dd>
-<dt>parents</dt><dd>{parents}</dd>
-<dt>tree</dt><dd><a href="{url}/tree/{esc(data["sha"])}/">browse the repository at this commit</a></dd>
-</dl>
-"""
-    # the message body beyond the subject line, if there is one
-    body_text = data["message"].strip()
-    body_text = body_text[len(data["subject"]):].strip() if body_text.startswith(data["subject"]) else body_text
-    message = f"<pre>{esc(body_text)}</pre>" if body_text else ""
 
     stats = data["stats"]
     filelist = "".join(
@@ -357,12 +396,13 @@ def commit(data: dict) -> str:
     body = f"""
 {_crumbs(("repos", "/repos/"), (data["path"], url), (data["short"], None))}
 <h1>{esc(data["subject"])}</h1>
-{meta}
-{message}
+{_commit_meta(url, data, parents)}
+{_message_body(data)}
+{tabs}
 <h2>Changes</h2>
 {changes}
 """
-    return view(BASE_CSS + DIFF_CSS, body)
+    return view(BASE_CSS + DIFF_CSS + TABS_CSS, body)
 
 
 def _file_label(f: dict) -> str:
@@ -389,6 +429,166 @@ def _file_section(url: str, sha: str, i: int, f: dict) -> str:
 {_file_label(f)}{_counts(f["additions"], f["deletions"])}{file_link}</summary>
 {content}
 </details>"""
+
+
+MERGE_CSS = """
+.parentstats code { font-size: 0.85em; }
+.legend { font-size: 0.82rem; }
+.merge-wrap { overflow-x: auto; }
+table.merge { border-collapse: collapse; font-family: var(--mono); font-size: 0.78rem; line-height: 1.55; width: 100%; }
+table.merge th { font-size: 0.72rem; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); }
+table.merge td { padding: 0 0.6rem; border-bottom: none; border-left: 1px solid var(--border); white-space: pre; vertical-align: top; }
+table.merge th:first-child, table.merge td:first-child { border-left: none; }
+table.merge .ln { display: inline-block; min-width: 2.4em; margin-right: 0.7em; text-align: right; color: var(--fg-dim); user-select: none; }
+table.merge td.changed, table.merge td.removed { color: var(--diff-del); background: var(--diff-del-bg); }
+table.merge td.absent { background: repeating-linear-gradient(45deg, transparent 0 6px, var(--code-bg) 6px 8px); }
+table.merge td.res .sign { display: inline-block; width: 1em; color: var(--diff-add); font-weight: 700; user-select: none; }
+table.merge td.res.authored { background: var(--diff-add-bg); }
+.flag { color: var(--accent); margin-left: 0.5em; }
+tr.fold td { border-left: none; background: var(--code-bg); text-align: center; padding: 0.3rem; font-size: 0.75rem; }
+"""
+
+
+def _merge_table(url: str, data: dict, f: dict) -> str:
+    n = len(data["parents"])
+    head = (
+        "".join(
+            f'<th><a href="{url}/commit/{esc(p["sha"])}">parent {i} · {esc(p["short"])}</a></th>'
+            for i, p in enumerate(data["parents"], 1)
+        )
+        + "<th>result</th>"
+    )
+    rows = []
+    for row in f["rows"]:
+        if row["kind"] == "fold":
+            rows.append(
+                f'<tr class="fold"><td colspan="{n + 1}">'
+                f'<a href="{url}/commit/{esc(data["sha"])}?full=1">'
+                f'⋯ {row["count"]} unchanged lines ({row["start"]}–{row["end"]}) — show</a>'
+                "</td></tr>"
+            )
+            continue
+        cells = []
+        for cell in row["cells"]:
+            if cell["status"] == "same":
+                cells.append(
+                    f'<td class="same"><span class="ln">{cell["no"]}</span>'
+                    f'{esc(row["result_text"] or "")}</td>'
+                )
+            elif cell["status"] == "absent":
+                cells.append('<td class="absent"></td>')
+            else:  # changed | removed: this parent's own text
+                cells.append(
+                    f'<td class="{cell["status"]}"><span class="ln">{cell["no"]}</span>'
+                    f'{esc(cell["text"] or "")}</td>'
+                )
+        flag = (
+            ' <span class="flag" title="merge-authored: matches no parent">⚑</span>'
+            if row["merge_authored"]
+            else ""
+        )
+        if row["kind"] == "line":
+            sign = "+" if row["merge_authored"] else " "
+            authored = " authored" if row["merge_authored"] else ""
+            cells.append(
+                f'<td class="res{authored}"><span class="ln">{row["result_no"]}</span>'
+                f'<span class="sign">{sign}</span>{esc(row["result_text"] or "")}{flag}</td>'
+            )
+        else:  # only: lines the result dropped
+            cells.append(f'<td class="res">{flag}</td>')
+        rows.append(f'<tr>{"".join(cells)}</tr>')
+    return (
+        '<div class="merge-wrap"><table class="merge">'
+        f'<thead><tr>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+    )
+
+
+def _merge_file_section(url: str, data: dict, i: int, f: dict) -> str:
+    labels = []
+    for status, p, c in zip(f["statuses"], data["parents"], f["parent_counts"]):
+        if status == "=":
+            labels.append(f'<span class="dim">= vs {esc(p["short"])}</span>')
+        else:
+            labels.append(
+                f'<span class="status status-{esc(status)}">{esc(status)}</span> '
+                f'vs {esc(p["short"])} <span class="stat-add">+{c["additions"]}</span> '
+                f'<span class="stat-del">−{c["deletions"]}</span>'
+            )
+    if f["binary"]:
+        content = '<pre><span class="dim">Binary file not shown.</span></pre>'
+    elif f["truncated"]:
+        content = (
+            '<pre><span class="dim">File too large for the side-by-side view — '
+            "use the per-parent diff tabs above.</span></pre>"
+        )
+    elif f["rows"]:
+        content = _merge_table(url, data, f)
+    else:
+        content = '<pre><span class="dim">No textual changes.</span></pre>'
+    deleted = "D" in f["statuses"]
+    file_link = (
+        f' <a href="{url}/tree/{esc(data["sha"])}/{esc(f["path"])}">view file</a>'
+        if not deleted
+        else ""
+    )
+    return f"""
+<details class="file" id="f-{i}" open>
+<summary>{esc(f["path"])} <span class="dim">·</span> {' <span class="dim">·</span> '.join(labels)}{file_link}</summary>
+{content}
+</details>"""
+
+
+def merge(data: dict) -> str:
+    """A merge commit: side-by-side per-parent columns against the plain
+    result. The result column is not a diff — it is the merged content."""
+    url = _repo_url(data["path"])
+    parents_html = " ".join(
+        f'<a href="{url}/commit/{esc(p["sha"])}"><code>{esc(p["short"])}</code></a>'
+        for p in data["parents"]
+    )
+    tabs = _parent_tabs(
+        url, data["sha"], [(p["sha"], p["short"]) for p in data["parents"]], active=0
+    )
+    stat_bits = []
+    for i, (p, s) in enumerate(zip(data["parents"], data["parent_stats"]), 1):
+        if s["files_changed"] == 0:
+            stat_bits.append(
+                f'vs parent {i} <code>{esc(p["short"])}</code>: no changes — '
+                "the merge took this side as-is"
+            )
+        else:
+            stat_bits.append(
+                f'vs parent {i} <code>{esc(p["short"])}</code>: '
+                f'{s["files_changed"]} file{"s" if s["files_changed"] != 1 else ""}, '
+                f'<span class="stat-add">+{s["additions"]}</span> '
+                f'<span class="stat-del">−{s["deletions"]}</span>'
+            )
+    fold_note = (
+        f'<a href="{url}/commit/{esc(data["sha"])}">fold unchanged lines</a>'
+        if data["full"]
+        else "runs where every parent matches are folded"
+    )
+    legend = (
+        '<p class="dim legend">Each parent column shows how that parent differs from the '
+        'result; <span class="flag">⚑</span> rows match no parent — the merge author wrote '
+        f"them. The result column is the merged content itself; {fold_note}.</p>"
+    )
+    sections = (
+        "".join(_merge_file_section(url, data, i, f) for i, f in enumerate(data["files"]))
+        or '<p class="empty">No changes to display.</p>'
+    )
+    body = f"""
+{_crumbs(("repos", "/repos/"), (data["path"], url), (data["short"], None))}
+<h1>{esc(data["subject"])}</h1>
+{_commit_meta(url, data, parents_html)}
+{_message_body(data)}
+{tabs}
+<h2>Changes</h2>
+<p class="dim parentstats">{" · ".join(stat_bits)}</p>
+{legend}
+{sections}
+"""
+    return view(BASE_CSS + DIFF_CSS + TABS_CSS + MERGE_CSS, body)
 
 
 def docs(data: dict) -> str:

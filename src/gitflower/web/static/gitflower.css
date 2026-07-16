@@ -11,6 +11,8 @@
   --code-bg: #f6f8fa;
   --diff-add: #1a7f37;
   --diff-del: #cf222e;
+  --diff-add-bg: #dafbe1;
+  --diff-del-bg: #ffebe9;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", monospace;
   color-scheme: light dark;
 }
@@ -25,6 +27,8 @@
     --code-bg: #161b22;
     --diff-add: #3fb950;
     --diff-del: #f85149;
+    --diff-add-bg: #12261e;
+    --diff-del-bg: #25171c;
   }
 }
 

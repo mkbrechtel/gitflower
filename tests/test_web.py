@@ -26,6 +26,9 @@ def hosted(tmp_path):
         (work / "sub" / "nested.txt").write_text("nested\n")
         git(work, "add", ".")
         git(work, "commit", "-m", f"commit {n}")
+    (work / "long.txt").write_text("".join(f"long line {i}\n" for i in range(1, 41)))
+    git(work, "add", ".")
+    git(work, "commit", "-m", "long file")
     (work / "binary.bin").write_bytes(bytes(range(256)))
     git(work, "add", ".")
     git(work, "commit", "-m", "add binary")
@@ -33,8 +36,20 @@ def hosted(tmp_path):
     (work / "feature.txt").write_text("feature work\n")
     git(work, "add", ".")
     git(work, "commit", "-m", "feature commit")
+    # a merge commit on its own branch, so main's tip stays a plain commit;
+    # the side branch also changes one line deep in long.txt so the merge's
+    # side-by-side view has unchanged runs to fold
+    git(work, "checkout", "-b", "side", "main~1")
+    (work / "side.txt").write_text("side\n")
+    lines = (work / "long.txt").read_text().splitlines(keepends=True)
+    lines[19] = "long line 20 changed by side\n"
+    (work / "long.txt").write_text("".join(lines))
+    git(work, "add", ".")
+    git(work, "commit", "-m", "side work")
+    git(work, "checkout", "-b", "merged", "main")
+    git(work, "merge", "--no-ff", "side", "-m", "merge side")
     git(work, "checkout", "main")
-    git(work, "push", "origin", "main", "work/feature/thing")
+    git(work, "push", "origin", "main", "work/feature/thing", "merged")
     return root
 
 
@@ -97,7 +112,7 @@ def test_repo_detail_carries_graph_and_branches(client):
     assert f'<a class="graph-sha" href="/repos/app.git/commit/' in page.text
     assert f'<a href="/repos/app.git/commit/{tip["sha"]}"><code>{tip["short"]}</code></a>' in page.text
     data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
-    assert {b["name"] for b in data["branches"]} == {"main", "work/feature/thing"}
+    assert {b["name"] for b in data["branches"]} == {"main", "work/feature/thing", "merged"}
     assert data["graph"]["rows"] and data["graph"]["width"] > 0
     assert data["clone_url"].endswith("/repos/app.git")
 
@@ -169,6 +184,82 @@ def test_commit_view(client):
     assert detail["files"][0]["binary"] is True
     assert detail["stats"]["files_changed"] == 1
     assert client.get("/repos/app.git/commit/0000000").status_code == 404
+
+
+def _merge_sha(client) -> str:
+    data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
+    return next(b["sha"] for b in data["branches"] if b["name"] == "merged")
+
+
+def test_merge_commit_defaults_to_side_by_side(client):
+    sha = _merge_sha(client)
+    detail = client.get(
+        f"/repos/app.git/commit/{sha}", headers={"Accept": "application/json"}
+    ).json()
+    assert len(detail["parents"]) == 2 and detail["parents"][0]["short"]
+    files = {f["path"]: f for f in detail["files"]}
+    assert set(files) == {"side.txt", "long.txt", "binary.bin"}
+    # side.txt came from the side branch: added vs parent 1, unchanged vs parent 2
+    assert files["side.txt"]["statuses"] == ["A", "="]
+    (row,) = files["side.txt"]["rows"]
+    assert row["kind"] == "line" and row["result_text"] == "side"
+    assert [c["status"] for c in row["cells"]] == ["absent", "same"]
+    assert not row["merge_authored"]
+    # long.txt: one line changed on the side branch, the rest folds
+    assert files["long.txt"]["statuses"] == ["M", "="]
+    changed = next(r for r in files["long.txt"]["rows"] if r["result_no"] == 20)
+    assert changed["cells"][0]["text"] == "long line 20"
+    assert [c["status"] for c in changed["cells"]] == ["changed", "same"]
+    # binary.bin is on main's side only
+    assert files["binary.bin"]["statuses"] == ["=", "A"] and files["binary.bin"]["binary"]
+
+    page = client.get(f"/repos/app.git/commit/{sha}")
+    assert '<table class="merge"' in page.text and "result</th>" in page.text
+    assert 'class="tabs"' in page.text and f"?parent=2" in page.text
+    fragment = client.get(f"/repos/app.git/commit/{sha}", headers={"GF-Fragment": "1"})
+    assert fragment.status_code == 200 and CHROME not in fragment.text
+
+
+def test_merge_parent_tabs_serve_plain_diffs(client):
+    sha = _merge_sha(client)
+    vs1 = client.get(
+        f"/repos/app.git/commit/{sha}?parent=1", headers={"Accept": "application/json"}
+    ).json()
+    assert vs1["diff_parent"] == 1
+    assert {f["path"] for f in vs1["files"]} == {"side.txt", "long.txt"}
+    vs2 = client.get(
+        f"/repos/app.git/commit/{sha}?parent=2", headers={"Accept": "application/json"}
+    ).json()
+    assert vs2["diff_parent"] == 2
+    assert {f["path"] for f in vs2["files"]} == {"binary.bin"}
+    page = client.get(f"/repos/app.git/commit/{sha}?parent=2")
+    assert "Showing changes against parent 2" in page.text and 'class="tabs"' in page.text
+    assert client.get(f"/repos/app.git/commit/{sha}?parent=3").status_code == 404
+    assert client.get(f"/repos/app.git/commit/{sha}?parent=0").status_code == 404
+
+
+def test_merge_full_unfolds(client):
+    sha = _merge_sha(client)
+    for suffix, expect_fold in (("", True), ("?full=1", False)):
+        detail = client.get(
+            f"/repos/app.git/commit/{sha}{suffix}", headers={"Accept": "application/json"}
+        ).json()
+        folds = [r for f in detail["files"] for r in f["rows"] if r["kind"] == "fold"]
+        assert bool(folds) == expect_fold  # long.txt's unchanged runs fold by default
+        assert detail["full"] == bool(suffix)
+        if folds:
+            assert all(f'⋯ {r["count"]} unchanged lines' for r in folds)
+
+
+def test_non_merge_commits_have_no_tabs(client):
+    data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
+    sha = next(b["sha"] for b in data["branches"] if b["name"] == "main")
+    page = client.get(f"/repos/app.git/commit/{sha}")
+    assert 'class="tabs"' not in page.text
+    detail = client.get(
+        f"/repos/app.git/commit/{sha}", headers={"Accept": "application/json"}
+    ).json()
+    assert detail["diff_parent"] == 1
 
 
 def test_404_serves_all_representations(client):
