@@ -5,65 +5,66 @@
 
 # In-tree merge requests — design
 
-gitflower manages the whole merge-request workflow — opening, review, acceptance, rework — in-tree: the conversation is attached to the repository's tree and history with commits, and the web UI renders it in a merge-requests section. This issue records the design decisions taken so far and the questions still open, ahead of writing the spec.
+gitflower manages the whole merge-request workflow — opening, review, acceptance, rework — in git itself: the MR and its conversation are commits under a per-MR ref namespace, and the web UI renders them in a merge-requests section. This issue records the design decisions taken so far and the questions still open, ahead of writing the spec.
 
 ## Scope
 
-The review feature is specced separately ([`../docs/spec/dot-review-format.md`](../docs/spec/dot-review-format.md)). This design assumes only: *review commits* exist, they approve or comment upon commits by carrying `.review` file(s) in the tree, and they get attached to an MR. Reviewer work-in-progress state (draft comments, read-tracking) lives in git notes on the reviewer's machine; submitting is what turns a draft into a review commit.
+The review feature is specced separately ([`../docs/spec/dot-review-format.md`](../docs/spec/dot-review-format.md)). This design assumes only: *review commits* exist, they approve or comment upon commits by carrying `.review` file(s) in the tree, and they land on the MR's reviews ref. Reviewer work-in-progress state (draft comments, read-tracking) lives in git notes on the reviewer's machine; submitting is what turns a draft into a review commit.
 
 ## Decisions
 
-**Opening an MR is a commit.** An MR is initiated by making a commit whose message starts with `MR: <title>`. A git hook recognizes the opening commit and creates a tracking ref for the MR.
+**Opening an MR is an empty commit.** An MR is opened by an empty commit — no tree change — whose message summarizes what is about to be merged. The commit's own SHA is the MR id (`<merge-id>` below): intrinsic to the repository, needs no allocation or recording mechanism, and abbreviates for humans the way any git SHA does.
 
-**A tracking ref mirrors the MR.** The hook keeps `refs/mrs/<id>` pointing at the MR branch's current tip. The ref namespace is the discovery index for tooling and the web UI, and the mirror survives branch deletion as the archive of the MR.
+**An MR has no formal target branch.** A message starting `MR: <summary>` is an unspecified merge request: this line of work aims to be merged into the mainline (the default branch) over an appropriate path — the path is not predefined, and integration may happen via intermediate merges over a longer line. `MR@<branch>: <summary>` specifies an explicit target branch, for special circumstances.
 
-**The MR id is the opening commit's SHA.** The `MR: <title>` commit's own SHA identifies the MR — `refs/mrs/<sha>` — so the id is intrinsic to the repository, needs no allocation or recording mechanism, and abbreviates for humans the way any git SHA does.
+**A git hook materializes a ref namespace per MR.** When an MR commit appears in a push, the hook puts it on `refs/mrs/<merge-id>/mr`. The full namespace:
 
-**Conversation is commits plus `.review` files — nothing else.** The `MR: <title>` commit message is the MR description. All further conversation — comments, questions, verdicts, acceptance, rework notes — happens as `.review` events in review commits. There is no separate manifest or discussion-file format. In-tree review files follow the `reviews/…` path convention from the dot-review spec.
+- `refs/mrs/<merge-id>/mr` — the merge request commit.
+- `refs/mrs/<merge-id>/reviews` — review commits on top of the MR commit: human reviews and approvals, and machine notifications such as CI and linter results.
+- `refs/mrs/<merge-id>/resolution` — the commit that resolves the MR. Either an empty commit whose message starts `Closure: <reason>` — the MR is closed definitely — or a merge commit that resolves the MR positively, possibly one that merges over a longer line toward the mainline, or another MR commit based on this one that supersedes it.
+- `refs/mrs/<merge-id>/merger` — a candidate merge commit, present even when the merge conflicts. A conflicted merger commit says `Merge Conflicts …` in its message and carries the conflict markers in its tree. Once the MR is merged, this points at the actual merge commit, which may be the same commit as the resolution.
 
-**Review commits land on the MR branch.** Reviewers push their review commits directly onto the branch under review, so the branch's history is the complete MR timeline: code, reviews, and rework interleaved.
+**Conversation is commits plus `.review` files — nothing else.** The MR commit's message is the description. All further conversation — comments, questions, verdicts, approvals, machine check results — happens as `.review` events in commits on the reviews ref, following the on-tree `reviews/…` path convention of the dot-review spec. There is no separate manifest or discussion-file format.
 
-**Divergence is handled by merging the target in.** When the target branch (e.g. `main`) moves while the MR is open, the author merges the target into the MR branch. Reviewed commit SHAs stay valid, so SHA-anchored reviews survive; the MR history gains update-merge commits.
+**MR state is derived from the namespace, not stored.** Open: `mr` exists and `resolution` doesn't. Resolved: `resolution` exists — merged (a merge commit), closed (a `Closure:` commit), or superseded (a newer MR commit based on this one). Whether the candidate merge currently conflicts is read off the `merger` commit. There is no status field that could drift from reality.
 
-**Approvals pin a SHA; clean target-updates are exempt.** An approval names the commit it covers. New author work after that commit voids the approval and requires re-approval; conversation-only commits and clean target-update merges do not.
-
-**The conversation lands on the target at merge.** The integration merge is a plain merge: `reviews/…` files and the MR commits arrive on the target branch as a permanent, grep-able in-history record.
-
-**MR state is derived from history, not stored.** Opened by the `MR:` commit, approved when a covering verdict exists, merged when the tip is reachable from the target, closed by an explicit closing commit. There is no status field that could drift from reality.
-
-**Pushes to an open MR branch are restricted to MR-related commits.** Non-authors may push only MR-related commits — review commits, closure, and similar workflow acts — not code changes. Enforcement mechanics are an open question.
+**Merge policy is configuration — stubbed for now.** Which approvals or machine checks an MR needs before it may merge is defined in gitflower's configuration. Initially this is a stub: the configuration surface exists, the enforcement is implemented later.
 
 ## Open questions
 
-### O1 — What counts as an "MR-related commit" for push enforcement?
+### O1 — Where does the MR commit sit, and what happens on rework?
 
-The hook must recognize which commits a non-author may push. Candidates: path-based (touches only `reviews/…`), message-based (recognized prefixes like `Review:`, `Close:`), trailer-based, or a combination. The same recognition likely feeds the state derivation (closing commit) and the approval-staleness rule (conversation-only commits).
+Presumably the empty MR commit tops the line of work to be merged, so its ancestry is exactly the content of the MR. When a review requests changes and the author produces more commits: does `/mr` advance to a new MR commit on the extended line, or does a fresh MR supersede this one (via `/resolution`)? This is also the approval-coverage question — reviews sit on top of a specific MR commit and cover exactly its ancestry, so whichever mechanism moves the content also decides what happens to existing approvals.
 
-### O2 — Must the MR be up to date with the target at merge time?
+### O2 — Who computes `/merger`, against what, and when?
 
-Divergence is resolved by merging the target in, but it is undecided whether the hook refuses the final integration when the MR branch does not currently contain the target's tip (test-what-you-merge), or whether the merger may integrate a diverged branch.
+The candidate merge needs something to merge into — with no formal target, presumably the mainline's current tip (or the `MR@<branch>` target). Is it recomputed by the hook on every push to the MR, on every advance of the mainline, or on demand? And does a conflicted merger commit block anything, or is it purely informational?
 
-### O3 — What is a "clean" target-update merge?
+### O3 — Does the conversation reach the mainline?
 
-Clean updates don't void approvals; updates that required real conflict resolution arguably should. The rule needs a mechanical definition — for example, the update-merge's tree matches an automatic re-merge of its parents.
+Reviews live on `refs/mrs/<merge-id>/reviews`, not on the merged line. Does the resolving merge include the reviews ref — bringing the `.review` files into mainline history as a permanent record — or does the conversation stay only in the MR namespace?
 
-### O4 — What is the closing act?
+### O4 — What is the shape of the reviews ref?
 
-Closing without merging is an explicit commit — what shape? A message prefix (`Close: <reason>`), a `.review` verdict (e.g. `Rejected`), or both? And does the hook do anything at closure beyond freezing the `refs/mrs/<id>` mirror?
+A single stack of commits on top of the MR commit: how do concurrent reviewers append — fetch/rebase/push races, or merge commits within the reviews line? Do machine notifications (CI, linter) share the same line as human reviews, or get their own refs under the namespace?
 
-### O5 — Lifecycle of `refs/mrs/<id>`
+### O5 — Who may write which ref?
 
-Which hook maintains the mirror (post-receive on the server?), does it keep following the branch after merge, and is it kept forever? Repeated MRs from the same branch get distinct ids — confirm the mirror model handles an open MR after an earlier merged one on the same branch.
+Permissions per namespace entry — for example: anyone with access may append to `/reviews`, only author or maintainer may set `/resolution`, only the hook writes `/mr` and `/merger`. Presumably part of the policy configuration; the stub should reserve room for it.
 
-### O6 — Layout under `reviews/`
+### O6 — What does the policy stub look like?
 
-The dot-review spec's on-tree convention is `reviews/<object-kind>-<short-sha>.review`. Do MR review commits use exactly that flat layout, or are files grouped per MR (e.g. `reviews/<mr-id>/…`) so a merged target keeps records of many MRs apart?
+Where the merge policy lives in the existing configuration (`branch_rules` workflow name, a policy list like `protected_branches`, or a new section), so the stub can be wired now and implemented later.
 
 ### O7 — Web UI
 
-Discovery is enumerating `refs/mrs/`. Still open: the list view's columns (title, author, state, ahead/behind, verdicts); and the detail view — a timeline interleaving code commits and review events across `merge-base..tip`, rendered `.review` sections, and a changes view with `reviews/…` paths filtered out of the diff.
+Discovery is enumerating `refs/mrs/*/mr`. Still open: the list view's columns (summary, author, state, merger conflict status); and the detail view — description, the reviews rendered from the reviews ref, the candidate merger's diff, and the line of work the MR covers.
 
 # Considerations
+
+## Superseded: branch-carried conversation
+
+An earlier iteration kept the whole conversation on the work branch itself: review commits pushed onto the branch under review, `refs/mrs/<id>` as a plain mirror of the branch tip, divergence handled by the author merging the target in, approvals pinning a SHA with an exemption for clean target-updates, and push restrictions distinguishing author code from reviewer conversation. The per-MR ref namespace replaces all of it: the work branch stays untouched by MR machinery, reviews stack on the reviews ref, divergence surfaces in the conflicted merger commit, and per-MR grouping of review files is implicit in the namespace.
 
 ## Rejected: `.mr/` root directory
 
@@ -75,7 +76,7 @@ The dot-review spec's default of sharing reviews via `refs/notes/reviews` is not
 
 ## Rejected: manifest and discussion files
 
-A per-MR manifest (title, target, status frontmatter) and one-file-per-message discussion threads were considered and dropped. The opening commit's message carries the description, `.review` events carry the conversation, and state is derived from history — a second file format would duplicate all three.
+A per-MR manifest (title, target, status frontmatter) and one-file-per-message discussion threads were considered and dropped. The opening commit's message carries the description, `.review` events carry the conversation, and state is derived from the namespace — a second file format would duplicate all three.
 
 ## Rejected: branch name, sequential number, or UUIDv7 as MR id
 
