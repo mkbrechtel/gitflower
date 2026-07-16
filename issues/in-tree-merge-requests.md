@@ -20,19 +20,20 @@ The review feature is specced separately ([`../docs/spec/dot-review-format.md`](
 **A git hook materializes a ref namespace per MR.** When an MR commit appears in a push, the hook puts it on `refs/mrs/<merge-id>/mr`. The full namespace:
 
 - `refs/mrs/<merge-id>/mr` — the merge request commit.
-- `refs/mrs/<merge-id>/reviews` — review commits on top of the MR commit: human reviews and approvals, and machine notifications such as CI and linter results.
+- `refs/mrs/<merge-id>/reviews` — review commits on top of the MR commit: human reviews and approvals.
+- `refs/mrs/<merge-id>/checks` — machine notifications on top of the MR commit: CI results, linter output, and similar automated checks.
 - `refs/mrs/<merge-id>/resolution` — the commit that resolves the MR. Either an empty commit whose message starts `Closure: <reason>` — the MR is closed definitely — or a merge commit that resolves the MR positively, possibly one that merges over a longer line toward the mainline, or another MR commit based on this one that supersedes it.
 - `refs/mrs/<merge-id>/merger` — a candidate merge commit, present even when the merge conflicts. A conflicted merger commit says `Merge Conflicts …` in its message and carries the conflict markers in its tree. Once the MR is merged, this points at the actual merge commit, which may be the same commit as the resolution.
 
-**Conversation is commits plus `.review` files — nothing else.** The MR commit's message is the description. All further conversation — comments, questions, verdicts, approvals, machine check results — happens as `.review` events in commits on the reviews ref, following the on-tree `reviews/…` path convention of the dot-review spec. There is no separate manifest or discussion-file format.
+**Conversation is commits plus `.review` files — nothing else.** The MR commit's message is the description. All further conversation — comments, questions, verdicts, approvals, machine check results — happens as `.review` events in commits on the reviews and checks refs, following the on-tree `reviews/…` path convention of the dot-review spec. There is no separate manifest or discussion-file format.
 
 **MR commits are immutable — rework supersedes.** When a review requests changes, the author's new work gets a new MR commit on the extended line; the old MR's `/resolution` points at the superseding MR commit. Approvals never go stale, because each approval sits on top of exactly one immutable ancestry.
 
 **The hook keeps `/merger` fresh from both sides.** The candidate merge is recomputed against the mainline's tip (or the `MR@<branch>` target) whenever either side advances — a push to the MR or a push to the mainline.
 
-**The resolving merge merges the reviews tip.** A positive resolution merges `refs/mrs/<merge-id>/reviews` — the MR's ancestry plus its review commits — so the `.review` files, approvals, and machine notifications land in mainline history as a permanent record alongside the code.
+**The resolving merge merges the reviews tip.** A positive resolution merges `refs/mrs/<merge-id>/reviews` — the MR's ancestry plus its review commits — so the `.review` files and approvals land in mainline history as a permanent record alongside the code.
 
-**The reviews ref is a single line.** Review commits stack linearly on top of the MR commit; concurrent submitters fetch, rebase, and retry like on any contested branch.
+**The reviews and checks refs are single lines.** Commits stack linearly on top of the MR commit; concurrent submitters fetch, rebase, and retry like on any contested branch.
 
 **MR state is derived from the namespace, not stored.** Open: `mr` exists and `resolution` doesn't. Resolved: `resolution` exists — merged (a merge commit), closed (a `Closure:` commit), or superseded (a newer MR commit based on this one). Whether the candidate merge currently conflicts is read off the `merger` commit. There is no status field that could drift from reality.
 
@@ -42,7 +43,7 @@ The review feature is specced separately ([`../docs/spec/dot-review-format.md`](
 
 ### O1 — What does `/merger` merge?
 
-The resolving merge takes the reviews tip, so consistency suggests the candidate merger does too — merging `refs/mrs/<merge-id>/reviews` into the mainline tip rather than the bare MR commit. Confirm, and decide whether a conflicted merger commit blocks anything (resolution, superseding) or is purely informational.
+The resolving merge takes the reviews tip, so consistency suggests the candidate merger does too — merging `refs/mrs/<merge-id>/reviews` into the mainline tip rather than the bare MR commit. Confirm, decide whether the checks tip is merged as well (do CI results belong in mainline history?), and decide whether a conflicted merger commit blocks anything (resolution, superseding) or is purely informational.
 
 ### O2 — Does a superseding MR inherit anything?
 
@@ -50,7 +51,7 @@ A superseded MR's approvals cover the old ancestry by design and don't carry ove
 
 ### O3 — Who may write which ref?
 
-Permissions per namespace entry — for example: anyone with access may append to `/reviews`, only author or maintainer may set `/resolution`, only the hook writes `/mr` and `/merger`. Presumably part of the policy configuration; the stub should reserve room for it.
+Permissions per namespace entry — for example: anyone with access may append to `/reviews`, machine identities to `/checks`, only author or maintainer may set `/resolution`, only the hook writes `/mr` and `/merger`. Presumably part of the policy configuration; the stub should reserve room for it.
 
 ### O4 — What does the policy stub look like?
 
