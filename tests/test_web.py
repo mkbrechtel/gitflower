@@ -216,6 +216,8 @@ def test_merge_commit_defaults_to_side_by_side(client):
     page = client.get(f"/repos/app.git/commit/{sha}")
     assert '<table class="merge"' in page.text and "result</th>" in page.text
     assert 'class="tabs"' in page.text and f"?parent=2" in page.text
+    # taken-from-one-side rows still read as classic diff additions: green +
+    assert '<td class="res add"><span class="ln">1</span><span class="sign">+</span>side</td>' in page.text
     fragment = client.get(f"/repos/app.git/commit/{sha}", headers={"GF-Fragment": "1"})
     assert fragment.status_code == 200 and CHROME not in fragment.text
 

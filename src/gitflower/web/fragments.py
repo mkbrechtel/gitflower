@@ -443,7 +443,8 @@ table.merge .ln { display: inline-block; min-width: 2.4em; margin-right: 0.7em; 
 table.merge td.changed, table.merge td.removed { color: var(--diff-del); background: var(--diff-del-bg); }
 table.merge td.absent { background: repeating-linear-gradient(45deg, transparent 0 6px, var(--code-bg) 6px 8px); }
 table.merge td.res .sign { display: inline-block; width: 1em; color: var(--diff-add); font-weight: 700; user-select: none; }
-table.merge td.res.authored { background: var(--diff-add-bg); }
+table.merge td.res.add { background: var(--diff-add-bg); }
+table.merge td.res.gone { background: var(--diff-del-bg); }
 .flag { color: var(--accent); margin-left: 0.5em; }
 tr.fold td { border-left: none; background: var(--code-bg); text-align: center; padding: 0.3rem; font-size: 0.75rem; }
 """
@@ -488,14 +489,17 @@ def _merge_table(url: str, data: dict, f: dict) -> str:
             else ""
         )
         if row["kind"] == "line":
-            sign = "+" if row["merge_authored"] else " "
-            authored = " authored" if row["merge_authored"] else ""
+            # the classic diff reading: differing from any parent = an added
+            # line on the result side, green with a + sign
+            added = any(cell["status"] != "same" for cell in row["cells"])
+            classes = "res" + (" add" if added else "") + (" authored" if row["merge_authored"] else "")
+            sign = "+" if added else " "
             cells.append(
-                f'<td class="res{authored}"><span class="ln">{row["result_no"]}</span>'
+                f'<td class="{classes}"><span class="ln">{row["result_no"]}</span>'
                 f'<span class="sign">{sign}</span>{esc(row["result_text"] or "")}{flag}</td>'
             )
-        else:  # only: lines the result dropped
-            cells.append(f'<td class="res">{flag}</td>')
+        else:  # only: lines the result dropped — the removal side stays red
+            cells.append(f'<td class="res gone">{flag}</td>')
         rows.append(f'<tr>{"".join(cells)}</tr>')
     return (
         '<div class="merge-wrap"><table class="merge">'
@@ -569,9 +573,11 @@ def merge(data: dict) -> str:
         else "runs where every parent matches are folded"
     )
     legend = (
-        '<p class="dim legend">Each parent column shows how that parent differs from the '
-        'result; <span class="flag">⚑</span> rows match no parent — the merge author wrote '
-        f"them. The result column is the merged content itself; {fold_note}.</p>"
+        '<p class="dim legend">The result column is the merged content itself: '
+        '<span class="stat-add">green +</span> lines differ from at least one parent, '
+        '<span class="stat-del">red</span> cells carry a parent\'s own changed or removed text, '
+        'and <span class="flag">⚑</span> rows match no parent at all — the merge author wrote '
+        f"them. {fold_note.capitalize() if not data['full'] else fold_note}.</p>"
     )
     sections = (
         "".join(_merge_file_section(url, data, i, f) for i, f in enumerate(data["files"]))
