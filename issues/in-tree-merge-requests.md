@@ -5,11 +5,11 @@
 
 # In-tree merge requests — design
 
-gitflower manages merge requests in git itself: an MR is a pair of commits — the request and the merge that concludes it — tracked under a per-MR ref namespace and rendered in the web UI's merge-requests section. This issue records the design decisions taken so far and the questions still open, ahead of writing the spec.
+gitflower manages merge requests in git itself: an MR is a request commit and the resolution that concludes it — usually a merge — tracked under a per-MR ref namespace and rendered in the web UI's merge-requests section. This issue records the design decisions taken so far and the questions still open, ahead of writing the spec.
 
 ## Scope
 
-This feature covers only the MR itself: the request and its concluding merge. Reviews are follow-ups to an MR and have their own specs ([`../docs/spec/dot-review-format.md`](../docs/spec/dot-review-format.md)); how a repository organizes what happens around the merge — merging into an integration branch and reviewing the merge there, integrator modifications, checks, releasing to the mainline, or just yoloing everything to main — is the integration workflow, out of scope here.
+This feature covers only the MR itself: the request and its resolution. Reviews are follow-ups to an MR and have their own specs ([`../docs/spec/dot-review-format.md`](../docs/spec/dot-review-format.md)); how a repository organizes what happens around the merge — merging into an integration branch and reviewing the merge there, integrator modifications, checks, releasing to the mainline, or just yoloing everything to main — is the integration workflow, out of scope here.
 
 ## Decisions
 
@@ -17,12 +17,13 @@ This feature covers only the MR itself: the request and its concluding merge. Re
 
 **An MR has no formal target branch.** A message starting `MR: <summary>` is an unspecified merge request: this line of work aims to be merged into the mainline (the default branch) over an appropriate path — the path is not predefined, and integration may happen via intermediate merges over a longer line. `MR@<branch>: <summary>` specifies an explicit target branch, for special circumstances.
 
-**The namespace is two refs.** When an MR commit appears in a push, a git hook puts it on `refs/mrs/<oid>/request`. The merge that brings the request into a branch concludes the MR and lands on `refs/mrs/<oid>/merge`:
+**The namespace is three refs.** When an MR commit appears in a push, a git hook puts it on `refs/mrs/<oid>/request`. The MR concludes through its resolution:
 
 - `refs/mrs/<oid>/request` — the merge request commit, topping the line of work to be merged.
-- `refs/mrs/<oid>/merge` — the merge commit that concludes the MR, typically into an integration branch (or directly into the mainline).
+- `refs/mrs/<oid>/merge` — the merge commit that concludes the MR positively, typically into an integration branch (or directly into the mainline).
+- `refs/mrs/<oid>/resolution` — the commit that concludes the MR: the merge itself (same commit as `/merge`), or an empty commit whose message starts `Closure: <reason>` (the MR is closed — withdrawn, abandoned) or `Rejection: <reason>` (the MR is refused).
 
-**MR state is derived, not stored.** An MR is open when `/merge` is absent and concluded when it exists. There is no status field that could drift from reality.
+**MR state is derived, not stored.** An MR is open while `/resolution` is absent; once concluded it is merged (`/resolution` is the merge), closed (`Closure:`), or rejected (`Rejection:`). There is no status field that could drift from reality.
 
 **Request commits are immutable — rework supersedes.** New work on the same line gets a new MR commit; the request never moves.
 
@@ -49,6 +50,7 @@ M0
  │           │                R   /request   "MR: <summary>", empty commit
  │           │                │
  │           I1 ◄─────────────'   /merge     the merge concludes the MR
+ │           │                               (/resolution points here too)
  │           │
  M1 ◄────────'                    everything after — reviewing the merge, checks,
  │                                release to main — is the integration workflow
@@ -82,9 +84,9 @@ I0
 
 Is `/merge` set when a pushed merge commit first makes the request reachable from a branch (which branch classes count — anything, or configured integration/mainline branches?), or does the concluding merge identify itself explicitly (a trailer naming the request's oid)? Fast-forwards and merges that bring in several requests at once need an answer too.
 
-### O2 — How are closure and supersede represented in two refs?
+### O2 — Supersede, and how negative resolutions are delivered
 
-An MR that will never be merged (rejected, abandoned, superseded by a new request on the extended line): does `/merge` point at a non-merge concluding commit — an empty commit starting `Closure: <reason>`, or the superseding request — does a separate convention exist, or does the MR simply stay open until forgotten? And should a superseding request link back to what it replaces?
+Is a superseding request a valid `/resolution` for the MR it replaces (as in earlier iterations), or is supersede expressed as a `Closure: superseded by <oid>`? Should the superseding request link back? And mechanically: `Closure:`/`Rejection:` commits sit on no branch — how do they reach the hook (pushed on the work branch, pushed directly to the resolution ref, a CLI command)?
 
 ### O3 — Who may conclude an MR?
 
