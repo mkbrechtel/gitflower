@@ -136,7 +136,13 @@ Where the merge policy lives in the existing configuration (`branch_rules` workf
 
 A stacked MR's merger only makes sense against an integration tip that already contains the MRs below it in the stack. Does the stacked MR's pipeline wait at the merger phase until its base MR releases, and what happens to the stack when a base MR is refused — cascade refusal, or re-merger against the tip without it?
 
-### O8 — Web UI
+### O8 — Optimistic integration branches (unsettled idea)
+
+The integration branch could assume the merge will succeed: it advances the moment an MR's merger is cut — before checks and reviews — so stacked and parallel MRs merge against it immediately and run their pipelines concurrently, while reviewers still see the mergers in a clear order. Per-MR `/release` then ceases to exist; work graduates to the mainline at the integration branch's own pace. Multiple integration branches organized by category (`integration/<section>`) bring corresponding work tracks together. Possibly a configurable mode rather than the default.
+
+This is merge-queue semantics with strong prior art — git.git's `next`/`seen` branches, GitHub merge queues, GitLab merge trains — and a known cost: a refused MR has already been merged, poisoning the integration branch and every merger cut on top of it. That appears to force integration branches to be disposable aggregates — rebuildable at any time from the surviving MRs' chains (which is cheap here, since every MR's record lives in `refs/mrs/`, not on the integration branch), with cascade re-merger, re-check, and re-review of the MRs behind a refusal — rather than authoritative history. Whether the rebuild machinery is worth the parallelism, and whether this is a mode or the default, is the open judgment call.
+
+### O9 — Web UI
 
 Discovery is enumerating `refs/mrs/*/request`. The pipeline suggests the rendering: the MR as a stage view (request → modifications → merger → checks → reviews → release), each stage showing its segment of the chain. Still open: the list view's columns (summary, author, phase, conflict state) and how the detail view presents the diff to be merged versus the conversation.
 
