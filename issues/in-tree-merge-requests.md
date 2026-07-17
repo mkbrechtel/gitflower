@@ -17,25 +17,25 @@ The review feature is specced separately ([`../docs/spec/dot-review-format.md`](
 
 **An MR has no formal target branch.** A message starting `MR: <summary>` is an unspecified merge request: this line of work aims to be merged into the mainline (the default branch) over an appropriate path — the path is not predefined, and integration may happen via intermediate merges over a longer line. `MR@<branch>: <summary>` specifies an explicit target branch, for special circumstances.
 
-**The MR runs through a pipeline of phases, each marked by a ref.** When an MR commit appears in a push, a git hook puts it on `refs/mrs/<merge-id>/request` and the pipeline begins. A successful run looks like `/request → /modifications → /merger → /checks → /reviews → /release → /resolution`:
+**The MR runs through a pipeline of phases, each marked by a ref.** When an MR commit appears in a push, a git hook puts it on `refs/mrs/<merge-id>/request` and the pipeline begins. A successful run looks like `/request → /modifications → /merge → /checks → /reviews → /release → /resolution`:
 
 - `refs/mrs/<merge-id>/request` — the merge request commit.
 - `refs/mrs/<merge-id>/modifications` — mechanical preparation by bots on top of the request: a release bot assigning a version number, formatters, generated files. These commits modify the tree.
-- `refs/mrs/<merge-id>/merger` — the merge into the target happens here: a merge commit joining the chain with the mainline's (or the `MR@<branch>` target's) tip. If the merge conflicts, the merge commit carries the open conflict markers and a message starting `Merge Conflicts` and is set as the resolution — the MR is refused and never enters checks or review. MRs with merge conflicts are never accepted.
+- `refs/mrs/<merge-id>/merge` — the merge into the target happens here: a merge commit joining the chain with the mainline's (or the `MR@<branch>` target's) tip. If the merge conflicts, the merge commit carries the open conflict markers and a message starting `Merge Conflicts` and is set as the resolution — the MR is refused and never enters checks or review. MRs with merge conflicts are never accepted.
 - `refs/mrs/<merge-id>/checks` — machine checks on the merged tree: CI results, linter output.
-- `refs/mrs/<merge-id>/reviews` — human reviews and approvals. The review targets the merger commit — the tree as it will actually look on the target, including all modifications and merge effects — and starts only after the checks concluded: no brain time or tokens are spent on faulty trees.
+- `refs/mrs/<merge-id>/reviews` — human reviews and approvals. The review targets the merge commit — the tree as it will actually look on the target, including all modifications and merge effects — and starts only after the checks concluded: no brain time or tokens are spent on faulty trees.
 - `refs/mrs/<merge-id>/release` — the merged result lands on the target here.
 - `refs/mrs/<merge-id>/resolution` — the commit that resolves the MR: the positive release, an empty commit whose message starts `Closure: <reason>` (the MR is closed definitely), a superseding MR commit based on this one, or the conflicted `Merge Conflicts` merge.
 
-**The pipeline is one chain, linear along its first parent.** Each phase ref points at the last commit of its segment, stacked on the previous phase's tip; the merger commit is the one point where a second parent — the target's tip — joins the chain. Checks and reviews stack on top of the merger commit.
+**The pipeline is one chain, linear along its first parent.** Each phase ref points at the last commit of its segment, stacked on the previous phase's tip; the merge commit is the one point where a second parent — the target's tip — joins the chain. Checks and reviews stack on top of the merge commit.
 
-**Checks and reviews cover the merged result.** Because the merger phase precedes them, machine checks and human review examine the tree after merging into the target — so mechanical modifications and merge effects are checked and reviewed too, not just the author's work.
+**Checks and reviews cover the merged result.** Because the merge phase precedes them, machine checks and human review examine the tree after merging into the target — so mechanical modifications and merge effects are checked and reviewed too, not just the author's work.
 
-**The merger's target may be an integration branch.** The merge need not go to the mainline directly: the merger can target an integration branch (`integration`, `trunk`, `dev`), from which the work reaches the mainline over a longer line. This is especially interesting when working with stacked commits — a stacked MR's merger merges into an integration branch that already contains the MRs below it in the stack, so the stack unwinds release by release without rebasing.
+**The merge's target may be an integration branch.** The merge need not go to the mainline directly: it can target an integration branch (`integration`, `trunk`, `dev`), from which the work reaches the mainline over a longer line. This is especially interesting when working with stacked commits — a stacked MR's merge commit merges into an integration branch that already contains the MRs below it in the stack, so the stack unwinds release by release without rebasing.
 
 ## Graphs
 
-A successful pipeline run, with the merger targeting an integration branch:
+A successful pipeline run, with the merge targeting an integration branch:
 
 ```
 main        integration      MR pipeline chain (refs/mrs/<merge-id>/…)
@@ -53,7 +53,7 @@ M0
  │           │                │
  │           │                B   /modifications   e.g. version bump by a release bot
  │           │                │
- │           ├──────────────► G   /merger          merge commit: parents B and I0
+ │           ├──────────────► G   /merge          merge commit: parents B and I0
  │           │                │
  │           │                C   /checks          CI and linter results
  │           │                │
@@ -65,7 +65,7 @@ M0
  │
 ```
 
-Stacked MRs: MR₂'s work is based on MR₁'s work; once MR₁ releases, MR₂'s merger merges an integration tip that already contains MR₁:
+Stacked MRs: MR₂'s work is based on MR₁'s work; once MR₁ releases, MR₂'s merge commit merges an integration tip that already contains MR₁:
 
 ```
 integration       MR₁ chain               MR₂ chain (stacked on MR₁'s work)
@@ -81,12 +81,12 @@ I0
  │                 R₁  /request            │
  │                 │                       B2
  │                 ⋮   /modifications,     │
- ├───────────────► ⋮   /merger (I0),       R₂  /request
+ ├───────────────► ⋮   /merge (I0),       R₂  /request
  │                 ⋮   /checks, /reviews   │
  │                 │                       ⋮   /modifications
  I1 ◄──────────────'   /release            │
  │                                         │
- ├───────────────────────────────────────► G₂  /merger — merges I1, which already
+ ├───────────────────────────────────────► G₂  /merge — merges I1, which already
  │                                         │   contains MR₁: the stack unwinds
  │                                         ⋮   /checks, /reviews on the merged tree
  │                                         │
@@ -102,7 +102,7 @@ I0
 
 **The release merge may prune the conversation from the tree.** The merge commit may delete files again — the in-tree review and check files — so they are attached to history but don't linger in the mainline's tree.
 
-**MR state is derived from the namespace, not stored.** Which phase refs exist and where they point is the state: in preparation, refused at the merger (resolution points at a `Merge Conflicts` merge), in checks, in review, released, closed, or superseded. There is no status field that could drift from reality.
+**MR state is derived from the namespace, not stored.** Which phase refs exist and where they point is the state: in preparation, refused at the merge (resolution points at a `Merge Conflicts` merge), in checks, in review, released, closed, or superseded. There is no status field that could drift from reality.
 
 **Merge policy is configuration — stubbed for now.** Which checks and approvals an MR needs before it may release is defined in gitflower's configuration. Initially this is a stub: the configuration surface exists, the enforcement is implemented later.
 
@@ -110,11 +110,11 @@ I0
 
 ### O1 — Who advances the pipeline?
 
-What moves the MR from phase to phase: the hook alone, bots reporting in, or a maintainer command? Concretely — what triggers the modification bots, who cuts the merger commit, what declares the checks phase passed (all policy-required checks green?), and who may release.
+What moves the MR from phase to phase: the hook alone, bots reporting in, or a maintainer command? Concretely — what triggers the modification bots, who cuts the merge commit, what declares the checks phase passed (all policy-required checks green?), and who may release.
 
 ### O2 — What exactly happens at `/release`, and what about target drift?
 
-The merger commit was cut against the target's tip at merger time; the target may have advanced by the time checks and reviews conclude. Does release require the merger to still be current (fast-forwardable — otherwise the pipeline loops back through merger → checks → reviews on a fresh merge), or may release re-merge without re-review? Tied to this: what the target branch actually advances to — the chain tip (bringing the conversation into target history, with the reviews as first-parent ancestry), a pruning commit on top of it, or a fresh merge commit — and how that interacts with the usual first-parent-is-mainline convention.
+The merge commit was cut against the target's tip at merge time; the target may have advanced by the time checks and reviews conclude. Does release require the merge to still be current (fast-forwardable — otherwise the pipeline loops back through merge → checks → reviews on a fresh merge), or may release re-merge without re-review? Tied to this: what the target branch actually advances to — the chain tip (bringing the conversation into target history, with the reviews as first-parent ancestry), a pruning commit on top of it, or a fresh merge commit — and how that interacts with the usual first-parent-is-mainline convention.
 
 ### O3 — Does a superseding MR link back?
 
@@ -126,7 +126,7 @@ Permissions per phase — for example: machine identities write `/modifications`
 
 ### O5 — What exactly does the release merge prune?
 
-Deleting in-tree review and check files at merge time: always, by policy, or at the merger's discretion? And the boundary — modification commits like a version bump must survive pruning; is the rule simply "conversation files out, tree changes stay"?
+Deleting in-tree review and check files at merge time: always, by policy, or at the integrator's discretion? And the boundary — modification commits like a version bump must survive pruning; is the rule simply "conversation files out, tree changes stay"?
 
 ### O6 — What does the policy stub look like?
 
@@ -134,23 +134,27 @@ Where the merge policy lives in the existing configuration (`branch_rules` workf
 
 ### O7 — Stacked MRs and pipeline ordering
 
-A stacked MR's merger only makes sense against an integration tip that already contains the MRs below it in the stack. Does the stacked MR's pipeline wait at the merger phase until its base MR releases, and what happens to the stack when a base MR is refused — cascade refusal, or re-merger against the tip without it?
+A stacked MR's merge only makes sense against an integration tip that already contains the MRs below it in the stack. Does the stacked MR's pipeline wait at the merge phase until its base MR releases, and what happens to the stack when a base MR is refused — cascade refusal, or re-merge against the tip without it?
 
 ### O8 — Optimistic integration branches (unsettled idea)
 
-The integration branch could assume the merge will succeed: it advances the moment an MR's merger is cut — before checks and reviews — so stacked and parallel MRs merge against it immediately and run their pipelines concurrently, while reviewers still see the mergers in a clear order. Per-MR `/release` then ceases to exist; work graduates to the mainline at the integration branch's own pace. Multiple integration branches organized by category (`integration/<section>`) bring corresponding work tracks together. Possibly a configurable mode rather than the default.
+The integration branch assumes the merge will succeed: it advances the moment an MR's merge commit is cut — before checks and reviews — so stacked and parallel MRs merge against it immediately and run their pipelines concurrently, while reviewers still see the merges in a clear order. Per-MR `/release` then ceases to exist; work graduates to the mainline at the integration branch's own pace. Multiple integration branches organized by section (`integration/<section>`) bring corresponding work tracks together. Possibly a configurable mode rather than the default.
 
-This is merge-queue semantics with strong prior art — git.git's `next`/`seen` branches, GitHub merge queues, GitLab merge trains — and a known cost: a refused MR has already been merged, poisoning the integration branch and every merger cut on top of it. That appears to force integration branches to be disposable aggregates — rebuildable at any time from the surviving MRs' chains (which is cheap here, since every MR's record lives in `refs/mrs/`, not on the integration branch), with cascade re-merger, re-check, and re-review of the MRs behind a refusal — rather than authoritative history. Whether the rebuild machinery is worth the parallelism, and whether this is a mode or the default, is the open judgment call.
+**The integrator's promise.** Each section has an integrator who cuts the merge commits into their integration branch — an optimistic promise that the work will land. Within a team the promise is cheap: work based on the team's shared track carries an expectation of a later merge anyhow.
+
+**Negative findings are a task queue; fixing goes forward.** This is merge-queue territory (git.git's `next`/`seen`, GitHub merge queues, GitLab merge trains), but where trains eject a failing MR and rebuild behind it, here negative review findings become tasks on the integration branch and flag it as not mergeable toward the mainline. Fixes are based off the merge commit — the reviewed tree — and flow into the same integration branch; once the task queue is empty the branch may merge on. Nothing is ever removed, so no cascade re-merge, re-check, or re-review machinery is needed, and integration history stays honest and append-only.
+
+Open within this idea: hard rejection ("we don't want this at all") has no eject path — it means a revert on the integration branch, with the known revert-then-re-merge pitfalls; how findings-as-tasks are represented (open `## Issue` events without a `Resolved-by:` in the dot-review format already model exactly this); and how fix-forward relates to the default pipeline's supersede-on-rework rule, given that findings here arrive after integration.
 
 ### O9 — Web UI
 
-Discovery is enumerating `refs/mrs/*/request`. The pipeline suggests the rendering: the MR as a stage view (request → modifications → merger → checks → reviews → release), each stage showing its segment of the chain. Still open: the list view's columns (summary, author, phase, conflict state) and how the detail view presents the diff to be merged versus the conversation.
+Discovery is enumerating `refs/mrs/*/request`. The pipeline suggests the rendering: the MR as a stage view (request → modifications → merge → checks → reviews → release), each stage showing its segment of the chain. Still open: the list view's columns (summary, author, phase, conflict state) and how the detail view presents the diff to be merged versus the conversation.
 
 # Considerations
 
 ## Superseded: parallel reviews and checks refs
 
-A previous iteration split human reviews and machine checks into two sibling refs, both based on the MR commit — which makes the record non-linear as soon as both need merging. Before that, a single unsegmented "reactions" line was considered, but no name for it felt right (`/responses`, `/evaluation`, `/proceedings`, `/vetting`, …). The pipeline resolves both problems: one chain, and each segment names itself by its phase. A standing `/merger` candidate ref recomputed from both sides — and, briefly, a merge test inside the checks phase — became the merger *phase* instead, so that checks and reviews operate on the merged tree rather than predicting it.
+A previous iteration split human reviews and machine checks into two sibling refs, both based on the MR commit — which makes the record non-linear as soon as both need merging. Before that, a single unsegmented "reactions" line was considered, but no name for it felt right (`/responses`, `/evaluation`, `/proceedings`, `/vetting`, …). The pipeline resolves both problems: one chain, and each segment names itself by its phase. A standing `/merger` candidate ref recomputed from both sides — and, briefly, a merge test inside the checks phase — became the merge *phase* instead (first named `/merger`, renamed `/merge`), so that checks and reviews operate on the merged tree rather than predicting it.
 
 ## Superseded: branch-carried conversation
 
