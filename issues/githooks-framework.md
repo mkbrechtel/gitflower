@@ -25,19 +25,19 @@ gitflower provides the machine-wide git hooks framework with `.d` dispatch: a gi
 
 **Checks are configurable per repository.** A bundled check is not globally on or off: it is enabled per repo — for example the REUSE check only for public repos — so a machine-wide install stays a no-op wherever a check isn't wanted, the way autopush already gates on per-remote config.
 
+**Only needed hook names exist in the central directory.** The directory contains entry points only for the hooks the framework actually dispatches (`reference-transaction`, `pre-receive`, `pre-push`, …); git skips absent hook names for free, so repos never pay interpreter startup for hooks the framework doesn't use. Startup cost on the dispatched hooks is measured before the spec is fixed; a sh fast-path shim remains the fallback if it hurts.
+
+**Site extensions: `/etc` directory plus a config key.** The dispatcher always runs `/etc/gitflower/githooks.d/<hook>/*` when present, and a git-config key can name additional extension directories at any scope (system, global, repo) — machine-wide policy and per-repo extras through one mechanism.
+
+**Repo-local hooks chain only if configured.** The dispatcher runs the repository's own `hooks/<hook>` only where config enables it. Since `core.hooksPath` shadows repo-local hooks, installing the framework silently disables existing repo hooks (such as pod.git's `post-receive` deploy trigger) until chaining is switched on for that repo — deployments must set the config wherever repo-local hooks are load-bearing. In return, nothing runs that isn't declared.
+
+**Check enablement is git config; hosting writes it.** The runtime truth a hook reads is git config in the repository (e.g. `gitflower.check.reuse=true`), following the `remote.<name>.autopush` precedent — hooks depend only on local state. The hosting configuration declares policy (which repo classes get which checks) and writes those keys, the way `repos[].remotes[].auto_push` becomes per-remote config today.
+
 ## Open questions
 
-**Q1 — hot-path cost.** With a Python dispatcher, every dispatched hook invocation pays interpreter startup, and `reference-transaction` fires on every ref update of every repo on the machine (several times per ordinary git command). Options: only ship entry points for hook names the framework actually uses; a minimal sh shim that fast-paths to exit before Python when nothing is configured; accept the cost. Needs a measurement before the spec fixes an answer.
+**Q1 — command naming.** What the central commands are called under the CLI (`gitflower githooks run <hook>`? `gitflower hook <name>` extending the existing group?) and how a hook entry point maps to them.
 
-**Q2 — site extension points.** The central directory is package-owned, so admins no longer drop scripts next to the dispatcher. Where do site-local `.d` extensions live — `/etc/gitflower/githooks.d/<hook>/`, a git-config key naming extra directories, per-repo `.gitflower/` config, some combination? And does the lexicographic `50-` ordering convention carry over there?
-
-**Q3 — repo-local chaining.** `core.hooksPath` shadows the repository's own `hooks/` directory; the current dispatcher replays `hooks/<hook>` after the `.d` scripts so per-repo hooks keep firing. Confirm the Python dispatcher keeps this chaining, and whether scope layering beyond it (system → user → repo) is wanted or out of scope.
-
-**Q4 — check configuration mechanism.** Where a check's enablement lives: git config keys in the repo (`gitflower.check.reuse=true`, the autopush precedent), the repo's `.gitflower/` config (but that is in-tree, so pushers control their own gates), or the hosting config, which already knows repo classes and could enable checks by group or pattern ("public repos"). Possibly layered — hosting config sets policy, git config overrides per repo.
-
-**Q5 — command naming.** What the central commands are called under the CLI (`gitflower githooks run <hook>`? `gitflower hook <name>` extending the existing group?) and how a hook entry point maps to them.
-
-**Q6 — spec home.** The dispatch semantics and directory contract need a normative home. Presumably `docs/spec/` here, with the cute-devops pattern page referencing it — confirm the split.
+**Q2 — spec home.** The dispatch semantics and directory contract need a normative home. Presumably `docs/spec/` here, with the cute-devops pattern page referencing it — confirm the split.
 
 # References
 
