@@ -96,7 +96,7 @@ def org(data: dict) -> str:
 
 
 GRAPH_CSS = """
-.graph { position: relative; overflow-x: auto; margin: 1rem 0; border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0; }
+.graph { position: relative; margin: 1rem 0; border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0; }
 .graph-svg { position: absolute; top: 0.4rem; left: 0; }
 .graph-svg path { transition: opacity 0.15s; }
 .graph-svg.focused path { opacity: 0.25; }
