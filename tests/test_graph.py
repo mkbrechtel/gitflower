@@ -128,10 +128,22 @@ def test_link_to_a_shared_ancestor_rides_a_corridor_beside_the_lineage():
     assert (graph._x(1), m2["y"] + graph.ROW, p["y"]) in _verticals(link["d"])
 
 
+def crossings(rows: list[dict]) -> int:
+    """The edge-crossing count of a finished layout, via the untangle pass's
+    own geometry model with the identity column order."""
+    width = 1 + max(
+        (max(row["lane"], *row["corridors"].values(), 0) for row in rows), default=0
+    )
+    bends, runs = graph._strands(rows)
+    return graph._tangles(graph._rivals(bends, runs), list(range(width)))
+
+
 def test_a_blocked_corridor_shift_falls_back_to_the_far_right():
     """A branch mid-flight (dots already drawn) right of the merge pins its
     lane: the corridor may not shift it, so it opens at the far right and
-    the link folds into the parent's dot over the last row."""
+    the link folds into the parent's dot over the last row. That far-right
+    fallback costs a crossing — which the untangle pass then combs out by
+    reordering the columns, so the built graph ends up crossing-free."""
     commits = [
         commit("t1", "m"),  # trunk tip, lane 0
         commit("b1", "b2"),  # a branch with dots on lane 1, still descending
@@ -140,17 +152,27 @@ def test_a_blocked_corridor_shift_falls_back_to_the_far_right():
         commit("t2", "p"),
         commit("p"),
     ]
-    laid_out = graph.build(commits, tips={"t1", "b1"})
-    assert_no_dot_pierced(laid_out)
-    at = {row["id"]: row for row in laid_out["rows"]}
+    # the forward pass alone: the corridor lands on the appended lane 2
+    rows = graph._place([graph._node(c) for c in commits], {}, {})
+    at = {row["id"]: row for row in rows}
     assert at["b1"]["lane"] == at["b2"]["lane"] == 1  # untouched by the merge
     assert at["p"]["lane"] == 0
-    # the link rides the appended corridor (lane 2) and folds into p's dot
+    assert at["m"]["corridors"]["p"] == 2  # the far-right fallback
+    assert crossings(rows) == 1  # the link crosses the mid-flight branch
+
+    # the full build unties it: same shapes, columns reordered, no crossing
+    laid_out = graph.build(commits, tips={"t1", "b1"})
+    assert_no_dot_pierced(laid_out)
+    assert crossings(laid_out["rows"]) == 0
+    at = {row["id"]: row for row in laid_out["rows"]}
+    corridor = at["m"]["corridors"]["p"]
+    assert corridor not in {at["t1"]["lane"], at["b1"]["lane"]}
+    # the link still rides its corridor and folds into p's dot
     m, p = at["m"], at["p"]
-    (link,) = [e for e in laid_out["edges"] if f"{graph._x(2)}" in e["d"]]
+    (link,) = [e for e in laid_out["edges"] if f"{graph._x(corridor)}" in e["d"]]
     assert link["d"].startswith(f"M {m['x']},{m['y']} C")
     assert link["d"].endswith(f"{p['x']},{p['y']}")
-    assert 2 in link["lanes"]
+    assert corridor in link["lanes"]
     # the dot-less corridor still counts into the width
     assert laid_out["width"] == graph._x(2) + graph.PAD
 
@@ -317,6 +339,67 @@ def test_pinned_branches_hold_the_left_lanes_in_config_order():
     assert at["w"]["lane"] == 2  # non-pinned branches start beyond the reserved lanes
     assert at["m"]["pinned"] and at["i"]["pinned"] and at["base"]["pinned"]
     assert not at["w"]["pinned"]
+
+
+def test_untangle_reorders_free_columns_to_avoid_a_crossing():
+    """A short-lived branch tipped later than a long-lived one, so the
+    forward pass parked it one lane further out — and its fold back into
+    the trunk crossed the long-lived line. The untangle pass swaps the two
+    columns: short-lived work nestles against the trunk, the long-lived
+    line arcs outside it, nothing crosses. The pinned trunk never moves."""
+    commits = [
+        commit("a1", "a0"),  # long-lived branch, newest tip
+        commit("m1", "m2"),  # trunk tip
+        commit("b1", "m2"),  # short-lived branch, folds into the trunk soon
+        commit("m2", "m3"),
+        commit("a0", "m3"),  # the long-lived line reaches far down
+        commit("m3"),
+    ]
+    branch_of = {"a1": "aa", "a0": "aa", "b1": "bb", "m1": "main", "m2": "main", "m3": "main"}
+    laid_out = graph.build(
+        commits, tips={"a1", "m1", "b1"}, branch_of=branch_of, trunk="main", pinned=["main"]
+    )
+    assert_no_dot_pierced(laid_out)
+    assert crossings(laid_out["rows"]) == 0
+    at = {row["id"]: row for row in laid_out["rows"]}
+    assert at["m1"]["lane"] == at["m2"]["lane"] == at["m3"]["lane"] == 0
+    assert at["b1"]["lane"] == 1  # swapped inward, next to its fork point
+    assert at["a1"]["lane"] == at["a0"]["lane"] == 2
+
+
+def test_untangle_leaves_pinned_lanes_in_place():
+    """A work branch folding into the trunk must cross the pinned
+    integration line between them — the one move that would fix it is
+    moving a reserved column, which the pass may not do. The crossing
+    stays; the pinned order is the constraint it optimizes within."""
+    commits = [
+        commit("w", "mb"),  # work tip, folds into the trunk at mb
+        commit("i1", "i2"),  # integration tip
+        commit("m1", "mb"),  # trunk tip
+        commit("mb", "base"),
+        commit("i2", "base"),  # the integration line spans the fold
+        commit("base"),
+    ]
+    branch_of = {
+        "w": "work",
+        "i1": "integration",
+        "i2": "integration",
+        "m1": "main",
+        "mb": "main",
+        "base": "main",
+    }
+    laid_out = graph.build(
+        commits,
+        tips={"w", "i1", "m1"},
+        branch_of=branch_of,
+        trunk="main",
+        pinned=["main", "integration"],
+    )
+    assert_no_dot_pierced(laid_out)
+    at = {row["id"]: row for row in laid_out["rows"]}
+    assert at["m1"]["lane"] == 0 and at["i1"]["lane"] == at["i2"]["lane"] == 1
+    assert at["w"]["lane"] == 2
+    assert crossings(laid_out["rows"]) == 1  # the price of the pinned order
 
 
 def test_dimmed_shas_grey_their_rows_and_edges():
