@@ -330,3 +330,29 @@ def test_dimmed_shas_grey_their_rows_and_edges():
     assert at["b"]["dimmed"]
     assert not at["a"]["dimmed"] and not at["c"]["dimmed"]
     assert [edge["dimmed"] for edge in laid_out["edges"]].count(True) == 1  # b→c only
+
+
+def test_a_merge_corridor_beyond_the_reserved_lanes():
+    """Regression: with several pinned branches reserving lanes, a merge at
+    the very top needs a corridor before the lane list has grown to the
+    reserved width — the corridor must land on a real lane, not a clamped
+    insert's phantom index."""
+    commits = [
+        commit("m", "a", "s"),  # merge on the trunk, newest row
+        commit("t2", "a"),
+        commit("t3", "a"),
+        commit("s", "a"),
+        commit("a"),
+    ]
+    branch_of = {"m": "main", "a": "main", "t2": "two", "t3": "three", "s": "side"}
+    laid_out = graph.build(
+        commits,
+        tips={"m", "t2", "t3", "s"},
+        branch_of=branch_of,
+        trunk="main",
+        pinned=["main", "two", "three"],
+    )
+    at = {row["id"]: row for row in laid_out["rows"]}
+    assert at["m"]["lane"] == 0 and at["a"]["lane"] == 0
+    assert at["t2"]["lane"] == 1 and at["t3"]["lane"] == 2
+    assert at["s"]["lane"] >= 3  # the side line stays out of the reserved columns

@@ -160,6 +160,8 @@ def _place(nodes: list[dict], branch_of: dict[str, str], pin_order: list[str]) -
         columns), else the leftmost free lane beyond it, else the far
         right."""
         pos = max(after + 1, reserved)
+        while len(lanes) < pos:
+            grow()  # an insert beyond the end would clamp and skew the index
 
         def clean(i: int) -> bool:
             # shifting lane i to column i+1 must not put its pending
