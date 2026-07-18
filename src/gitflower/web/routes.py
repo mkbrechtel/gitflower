@@ -42,6 +42,8 @@ def _graph_model(g: dict) -> models.Graph:
             y=r["y"],
             color=r["color"],
             branch=r.get("branch"),
+            pinned=r.get("pinned", False),
+            dimmed=r.get("dimmed", False),
             commit=models.Commit(**r["commit"]) if "commit" in r else None,
             count=r.get("count"),
             first=models.Commit(**r["first"]) if "first" in r else None,
@@ -244,23 +246,40 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
         response_model=models.RepoDetail | models.OrgFolder,
         summary="Repository detail (…/name.git: branches, commit graph) or organization folder",
     )
-    def repo_or_org(request: Request, rest: str, full: bool = False) -> Response:
+    def repo_or_org(
+        request: Request, rest: str, full: bool = False, hidden: bool = False
+    ) -> Response:
         rest = rest.rstrip("/")
         if rest.endswith(".git"):
-            return _repo_detail(request, _validated(rest), full)
+            return _repo_detail(request, _validated(rest), full, hidden)
         return _org_view(request, rest)
 
-    def _repo_detail(request: Request, repo_path: str, full: bool) -> Response:
+    def _repo_detail(
+        request: Request, repo_path: str, full: bool, show_hidden: bool
+    ) -> Response:
         repo = repo_or_404(repo_path)
-        commits = gitread.commits(repo, GRAPH_LIMIT)
-        branches = [models.Branch(**b) for b in gitread.branches(repo)]
+        flagged = gitread.branches(
+            repo, pinned=cfg.web.pinned_branches, hidden=cfg.web.hidden_branches
+        )
+        branches = [
+            models.Branch(**b) for b in flagged if show_hidden or not b["hidden"]
+        ]
+        hide = () if show_hidden else cfg.web.hidden_branches
+        commits = gitread.commits(repo, GRAPH_LIMIT, hidden=hide)
         trunk = gitread.head_branch(repo)
+        # commits only hidden branches follow up on grey out when expanded
+        dimmed: set[str] = set()
+        if show_hidden and any(b.hidden for b in branches):
+            live = {b.sha for b in branches if not b.hidden}
+            dimmed = {c["sha"] for c in commits} - gitread.reachable(commits, live)
         laid_out = graph.build(
             commits,
             {b.sha for b in branches},
             collapse=not full,
-            branch_of=gitread.born_on(repo, commits, trunk),
+            branch_of=gitread.born_on(repo, commits, trunk, hidden=hide),
             trunk=trunk,
+            pinned=[b.name for b in branches if b.pinned],
+            dimmed=dimmed,
         )
         data = models.RepoDetail(
             path=repo_path,
@@ -270,6 +289,8 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
             full=full,
             total_shown=len(commits),
             clone_url=str(request.base_url) + f"repos/{repo_path}",
+            show_hidden=show_hidden,
+            hidden_count=sum(1 for b in flagged if b["hidden"]),
         )
         return respond(request, data, fragments.repo, repo_path)
 
