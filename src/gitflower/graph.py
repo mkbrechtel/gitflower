@@ -380,14 +380,16 @@ def _untangle(rows: list[dict], reserved: int) -> None:
     any of it. The pinned branches' reserved columns stay the leftmost,
     untouched; crossings over them that only moving a reserved column
     could undo are the accepted price. Everything else optimizes within
-    that restraint, at two grains: whole columns swap or slide past each
-    other, and a single segment hops to any column whose occupants don't
-    overlap its rows — so a short-lived branch ends up right beside the
-    pinned block it merges into, even when the column that greedily held
-    it must stay out for other lines. Hill-climb, keeping strict
-    improvements, until no move helps (or the eval budget runs out — each
-    improvement lowers a bounded non-negative score, so this
-    terminates)."""
+    that restraint, at three grains: whole columns swap or slide past
+    each other, a single segment hops to any column whose occupants don't
+    overlap its rows, and two overlapping segments trade columns — the
+    move that unwinds a stack of merges into its crossing-free onion,
+    where single hops deadlock on each other's occupancy. A trial is
+    scored by re-checking only the rival pairs that touch the moved
+    segments, so the budget goes into moves, not arithmetic. Hill-climb,
+    keeping strict improvements, until no move helps (or the eval budget
+    runs out — each improvement lowers a bounded non-negative score, so
+    this terminates)."""
     width = 1 + max(
         (max(row["lane"], *row["corridors"].values(), 0) for row in rows), default=0
     )
@@ -399,59 +401,105 @@ def _untangle(rows: list[dict], reserved: int) -> None:
     pairs = _rivals(bends, runs)
     col = _columns(rows)
     movable = sorted(seg for seg, c in col.items() if c >= reserved)
+    pairs_of: dict[int, list[int]] = {}
+    for i, (t1, b1, t2, b2) in enumerate(pairs):
+        for seg in {t1, b1, t2, b2}:
+            pairs_of.setdefault(seg, []).append(i)
+    bends_of: dict[int, list[int]] = {}
+    for i, (_, top, bottom) in enumerate(bends):
+        for seg in {top, bottom}:
+            bends_of.setdefault(seg, []).append(i)
 
-    def scored(assign: dict[int, int]) -> tuple[int, int, int]:
-        wire = sum(abs(assign[top] - assign[bottom]) for _, top, bottom in bends)
-        return (_tangles(pairs, assign), wire, sum(assign.values()))
+    occupants: dict[int, set[int]] = {}
+    for seg, c in col.items():
+        occupants.setdefault(c, set()).add(seg)
 
-    def fits(seg: int, target: int) -> bool:
+    def fits(seg: int, target: int, evicted: int | None = None) -> bool:
         lo, hi = extents[seg]
         return not any(
             other != seg
-            and col[other] == target
+            and other != evicted
             and extents[other][0] <= hi
             and lo <= extents[other][1]
-            for other in extents
+            for other in occupants.get(target, ())
         )
 
-    best = scored(col)
-    # each trial costs one pass over the rival pairs, so a dense graph gets
-    # fewer trials — pages must render even when the history is spaghetti
-    budget = max(64, min(4000, 1_000_000 // max(1, len(pairs))))
+    cross = _tangles(pairs, col)
+    wire = sum(abs(col[top] - col[bottom]) for _, top, bottom in bends)
+    left = sum(col.values())
+    budget = 300_000  # counted in pair re-checks, the unit of trial work
     improved = True
+
+    def moved_to(moved: dict[int, int]) -> bool:
+        """Score `moved` by the delta it makes and keep it if it wins: apply,
+        re-check the touched pairs, revert unless the score dropped."""
+        nonlocal cross, wire, left, budget, improved
+        if not moved:
+            return False
+        touched_pairs: set[int] = set()
+        touched_bends: set[int] = set()
+        for seg in moved:
+            touched_pairs.update(pairs_of.get(seg, ()))
+            touched_bends.update(bends_of.get(seg, ()))
+        budget -= len(touched_pairs) + len(touched_bends)
+        dc = dw = 0
+        for i in touched_pairs:
+            t1, b1, t2, b2 = pairs[i]
+            dc -= (col[t1] - col[t2]) * (col[b1] - col[b2]) < 0
+        for i in touched_bends:
+            _, top, bottom = bends[i]
+            dw -= abs(col[top] - col[bottom])
+        undo = {seg: col[seg] for seg in moved}
+        col.update(moved)
+        for i in touched_pairs:
+            t1, b1, t2, b2 = pairs[i]
+            dc += (col[t1] - col[t2]) * (col[b1] - col[b2]) < 0
+        for i in touched_bends:
+            _, top, bottom = bends[i]
+            dw += abs(col[top] - col[bottom])
+        dl = sum(moved[seg] - undo[seg] for seg in moved)
+        if (cross + dc, wire + dw, left + dl) >= (cross, wire, left):
+            col.update(undo)
+            return False
+        cross, wire, left = cross + dc, wire + dw, left + dl
+        for seg, target in moved.items():
+            occupants[undo[seg]].discard(seg)
+            occupants.setdefault(target, set()).add(seg)
+        improved = True
+        return True
+
+    overlapping = [
+        (a, b)
+        for i, a in enumerate(movable)
+        for b in movable[i + 1 :]
+        if extents[a][0] <= extents[b][1] and extents[b][0] <= extents[a][1]
+    ]
     while improved and budget > 0:
         improved = False
-        # whole columns swap or slide past each other…
+        # single lines hop to any column with room for their rows…
+        for seg in movable:
+            for target in range(reserved, width):
+                if budget <= 0 or target == col[seg] or not fits(seg, target):
+                    continue
+                moved_to({seg: target})
+        # …overlapping lines trade columns, which no chain of hops can…
+        for a, b in overlapping:
+            if budget <= 0 or col[a] == col[b]:
+                continue
+            if fits(a, col[b], evicted=b) and fits(b, col[a], evicted=a):
+                moved_to({a: col[b], b: col[a]})
+        # …and, the costly trials last, whole columns swap or slide
         for i in range(reserved, width):
             for j in range(reserved, width):
-                if i == j or budget == 0:
+                if i == j or budget <= 0:
                     continue
                 if j > i:  # slide column i out to j…
                     remap = {c: j if c == i else c - 1 if i < c <= j else c for c in range(width)}
                 else:  # …or back in before it
                     remap = {c: j if c == i else c + 1 if j <= c < i else c for c in range(width)}
-                trial = {seg: remap[c] for seg, c in col.items()}
-                budget -= 1
-                score = scored(trial)
-                if score < best:
-                    col, best, improved = trial, score, True
-                elif j > i and budget > 0:  # the plain swap of the two
-                    trial = {seg: j if c == i else i if c == j else c for seg, c in col.items()}
-                    budget -= 1
-                    score = scored(trial)
-                    if score < best:
-                        col, best, improved = trial, score, True
-        # …and single lines hop to any column with room for their rows
-        for seg in movable:
-            for target in range(reserved, width):
-                if budget == 0 or target == col[seg] or not fits(seg, target):
-                    continue
-                trial = dict(col)
-                trial[seg] = target
-                budget -= 1
-                score = scored(trial)
-                if score < best:
-                    col, best, improved = trial, score, True
+                slid = moved_to({seg: remap[c] for seg, c in col.items() if remap[c] != c})
+                if not slid and j > i and budget > 0:  # else the plain swap of the two
+                    moved_to({seg: j if c == i else i for seg, c in col.items() if c in (i, j)})
     for row in rows:
         row["lane"] = col[row["seg"]]
         row["corridors"] = {p: col[s] for p, s in row["corridor_seg"].items()}
