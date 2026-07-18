@@ -5,7 +5,7 @@
 
 # Global git hooks framework — design
 
-gitflower provides the machine-wide git hooks framework with `.d` dispatch: a gitflower-owned hooks script directory that `core.hooksPath` points at, where a dispatcher runs pluggable checks and actions, then chains to the repository's own `hooks/<hook>`. The framework currently lives as static files in the cute-devops `git_hooks` Ansible role; gitflower becomes its deployment-independent implementation, and deployments (Ansible or otherwise) install gitflower and invoke it. This issue records the decisions taken so far and the questions still open, ahead of writing the spec.
+gitflower provides the machine-wide git hooks framework with `.d` dispatch: a gitflower-owned hooks script directory that `core.hooksPath` points at, where a dispatcher runs pluggable checks and actions and can chain to the repository's own `hooks/<hook>`. The framework currently lives as static files in the cute-devops `git_hooks` Ansible role; gitflower becomes its deployment-independent implementation, and deployments (Ansible or otherwise) install gitflower and invoke it. This issue records the design decisions; the contract is specified in [`../docs/spec/githooks-framework.md`](../docs/spec/githooks-framework.md).
 
 ## Current state
 
@@ -33,11 +33,9 @@ gitflower provides the machine-wide git hooks framework with `.d` dispatch: a gi
 
 **Check enablement is git config; hosting writes it.** The runtime truth a hook reads is git config in the repository (e.g. `gitflower.check.reuse=true`), following the `remote.<name>.autopush` precedent — hooks depend only on local state. The hosting configuration declares policy (which repo classes get which checks) and writes those keys, the way `repos[].remotes[].auto_push` becomes per-remote config today.
 
-## Open questions
+**Hook entry points are the CLI.** The entries in the central directory are symlinks to the gitflower executable, named after the hook; gitflower detects from `argv[0]` which hook it is acting as. The same dispatch is equally reachable as `gitflower hook <name>`, extending the existing hook group — one implementation, two spellings.
 
-**Q1 — command naming.** What the central commands are called under the CLI (`gitflower githooks run <hook>`? `gitflower hook <name>` extending the existing group?) and how a hook entry point maps to them.
-
-**Q2 — spec home.** The dispatch semantics and directory contract need a normative home. Presumably `docs/spec/` here, with the cute-devops pattern page referencing it — confirm the split.
+**The spec lives in `docs/spec/`, the workflow on the pattern site.** [`docs/spec/githooks-framework.md`](../docs/spec/githooks-framework.md) holds the normative contract — directory layout, dispatch order, config keys — alongside the existing specs; the cute-devops pattern page describes the workflow and references it.
 
 # References
 
@@ -57,4 +55,4 @@ The Ansible role manages plain file copies: untested, only reachable through a d
 
 ## Pure-sh runtime, rejected
 
-A first framing kept the hook runtime pure sh with gitflower only installing static scripts, to keep Python off the hook path. Rejected in favour of the Python dispatcher: central commands in one tested implementation outweigh the startup cost, which Q1 addresses directly instead of designing around.
+A first framing kept the hook runtime pure sh with gitflower only installing static scripts, to keep Python off the hook path. Rejected in favour of the Python dispatcher: central commands in one tested implementation outweigh the startup cost, which the needed-hooks-only decision addresses directly instead of designing around.
