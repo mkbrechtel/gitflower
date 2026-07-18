@@ -130,12 +130,9 @@ def test_link_to_a_shared_ancestor_rides_a_corridor_beside_the_lineage():
 
 def crossings(rows: list[dict]) -> int:
     """The edge-crossing count of a finished layout, via the untangle pass's
-    own geometry model with the identity column order."""
-    width = 1 + max(
-        (max(row["lane"], *row["corridors"].values(), 0) for row in rows), default=0
-    )
-    bends, runs = graph._strands(rows)
-    return graph._tangles(graph._rivals(bends, runs), list(range(width)))
+    own geometry model and the columns the layout put each line on."""
+    bends, runs, _ = graph._strands(rows)
+    return graph._tangles(graph._rivals(bends, runs), graph._columns(rows))
 
 
 def test_a_blocked_corridor_shift_falls_back_to_the_far_right():
@@ -367,11 +364,38 @@ def test_untangle_reorders_free_columns_to_avoid_a_crossing():
     assert at["a1"]["lane"] == at["a0"]["lane"] == 2
 
 
+def test_equal_crossing_lines_settle_next_to_the_pinned_block():
+    """Greedy parked `a` beyond `b` because `b`'s line was still alive when
+    `a` tipped — but `b` ends before `a` ever bends, so the crossing count
+    is indifferent to their order. The travel tiebreak is not: it pulls
+    `a` right up against the pinned trunk it folds into, one lane past
+    the reserved block instead of the far edge."""
+    commits = [
+        commit("m1", "m2"),  # trunk tip
+        commit("b1", "b2"),  # a line that is still alive when `a` tips…
+        commit("a", "m3"),  # …so `a` greedily gets the lane beyond it
+        commit("b2"),  # `b` ends (an independent root)
+        commit("m2", "m3"),
+        commit("m3"),
+    ]
+    branch_of = {"m1": "main", "m2": "main", "m3": "main", "a": "aa", "b1": "bb", "b2": "bb"}
+    laid_out = graph.build(
+        commits, tips={"m1", "b1", "a"}, branch_of=branch_of, trunk="main", pinned=["main"]
+    )
+    assert_no_dot_pierced(laid_out)
+    assert crossings(laid_out["rows"]) == 0
+    at = {row["id"]: row for row in laid_out["rows"]}
+    assert at["m1"]["lane"] == 0
+    assert at["a"]["lane"] == 1  # hugs the pinned block it folds into
+    assert at["b1"]["lane"] == at["b2"]["lane"] == 2
+
+
 def test_untangle_leaves_pinned_lanes_in_place():
     """A work branch folding into the trunk must cross the pinned
     integration line between them — the one move that would fix it is
     moving a reserved column, which the pass may not do. The crossing
-    stays; the pinned order is the constraint it optimizes within."""
+    stays; the pinned lanes staying leftmost is the constraint it
+    optimizes within."""
     commits = [
         commit("w", "mb"),  # work tip, folds into the trunk at mb
         commit("i1", "i2"),  # integration tip
@@ -438,4 +462,4 @@ def test_a_merge_corridor_beyond_the_reserved_lanes():
     at = {row["id"]: row for row in laid_out["rows"]}
     assert at["m"]["lane"] == 0 and at["a"]["lane"] == 0
     assert at["t2"]["lane"] == 1 and at["t3"]["lane"] == 2
-    assert at["s"]["lane"] >= 3  # the side line stays out of the reserved columns
+    assert at["s"]["lane"] == 3  # the side line stays out of the reserved columns
