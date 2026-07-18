@@ -81,9 +81,32 @@ function enhanceGraph(root) {
   }
 }
 
+/* ------------------------------------------------- soft-wrap toggle */
+
+/* Changes views soft-wrap long lines by default; the toggle switches back to
+   horizontal scrolling and the choice sticks across pages. The label ships
+   hidden — without JS the default presentation simply stands. */
+function enhanceWrapToggles(root) {
+  for (const label of root.querySelectorAll(".wrap-toggle")) {
+    const input = label.querySelector("input");
+    const changes = root.querySelector(".changes");
+    if (!input || !changes) continue;
+    const wrap = localStorage.getItem("gf-wrap") !== "off";
+    input.checked = wrap;
+    changes.classList.toggle("nowrap", !wrap);
+    input.addEventListener("change", () => {
+      localStorage.setItem("gf-wrap", input.checked ? "on" : "off");
+      changes.classList.toggle("nowrap", !input.checked);
+    });
+    label.hidden = false;
+  }
+}
+
 function enhance(container) {
   for (const viewEl of container.querySelectorAll("gf-view")) {
-    if (viewEl.shadowRoot) enhanceGraph(viewEl.shadowRoot);
+    if (!viewEl.shadowRoot) continue;
+    enhanceGraph(viewEl.shadowRoot);
+    enhanceWrapToggles(viewEl.shadowRoot);
   }
 }
 

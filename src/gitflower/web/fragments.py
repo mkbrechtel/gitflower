@@ -271,6 +271,12 @@ def blob(data: dict) -> str:
 
 
 DIFF_CSS = """
+.changes-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.wrap-toggle { display: flex; align-items: center; gap: 0.4em; font-size: 0.8rem; color: var(--fg-dim); cursor: pointer; user-select: none; }
+.wrap-toggle[hidden] { display: none; }
+.wrap-toggle input { accent-color: var(--accent); margin: 0; }
+pre.patch { white-space: pre-wrap; overflow-wrap: anywhere; }
+.changes.nowrap pre.patch { white-space: pre; overflow-wrap: normal; }
 .patch .add { color: var(--diff-add); }
 .patch .del { color: var(--diff-del); }
 .patch .hunk { color: var(--accent); }
@@ -292,6 +298,15 @@ details.file > summary { cursor: pointer; padding: 0.5rem 0.9rem; background: va
 details.file > summary .counts { margin-left: auto; }
 details.file > pre { margin: 0; border: none; border-radius: 0; }
 """
+
+
+def _wrap_toggle() -> str:
+    # hidden until components.js wires it up — without JS the default
+    # (soft-wrapped) presentation stands
+    return (
+        '<label class="wrap-toggle" hidden>'
+        '<input type="checkbox" checked> soft-wrap lines</label>'
+    )
 
 
 def _counts(additions: int, deletions: int) -> str:
@@ -407,8 +422,10 @@ def commit(data: dict) -> str:
 {_commit_meta(url, data, parents)}
 {_message_body(data)}
 {tabs}
-<h2>Changes</h2>
+<div class="changes-head"><h2>Changes</h2>{_wrap_toggle()}</div>
+<div class="changes">
 {changes}
+</div>
 """
     return view(BASE_CSS + DIFF_CSS + TABS_CSS, body)
 
@@ -445,7 +462,8 @@ MERGE_CSS = """
 .merge-wrap { overflow-x: auto; }
 table.merge { border-collapse: collapse; font-family: var(--mono); font-size: 0.78rem; line-height: 1.55; width: 100%; }
 table.merge th { font-size: 0.72rem; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); }
-table.merge td { padding: 0 0.6rem; border-bottom: none; border-left: 1px solid var(--border); white-space: pre; vertical-align: top; }
+table.merge td { padding: 0 0.6rem; border-bottom: none; border-left: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
+.changes.nowrap table.merge td { white-space: pre; overflow-wrap: normal; }
 table.merge th:first-child, table.merge td:first-child { border-left: none; }
 table.merge .ln { display: inline-block; min-width: 2.4em; margin-right: 0.7em; text-align: right; color: var(--fg-dim); user-select: none; }
 table.merge td.changed, table.merge td.removed { color: var(--diff-del); background: var(--diff-del-bg); }
@@ -597,10 +615,12 @@ def merge(data: dict) -> str:
 {_commit_meta(url, data, parents_html)}
 {_message_body(data)}
 {tabs}
-<h2>Changes</h2>
+<div class="changes-head"><h2>Changes</h2>{_wrap_toggle()}</div>
 <p class="dim parentstats">{" · ".join(stat_bits)}</p>
 {legend}
+<div class="changes">
 {sections}
+</div>
 """
     return view(BASE_CSS + DIFF_CSS + TABS_CSS + MERGE_CSS, body)
 

@@ -55,8 +55,7 @@ body {
 .gf-brand { font-weight: 700; }
 
 #gf-main {
-  max-width: 62rem;
-  margin: 0 auto;
+  margin: 0;
   padding: 1.6rem 1.2rem 4rem;
 }
 

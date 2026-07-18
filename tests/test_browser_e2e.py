@@ -152,3 +152,45 @@ def test_theme_palette_is_active(browser, server):
         "return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()"
     )
     assert accent  # the palette custom properties are live
+
+
+PATCH_WHITE_SPACE = (
+    "const v = document.querySelector('gf-view');"
+    "const p = v && v.shadowRoot && v.shadowRoot.querySelector('pre.patch');"
+    "return p ? getComputedStyle(p).whiteSpace : null"
+)
+
+
+def test_full_width_and_wrap_toggle(browser, server):
+    browser.get(server + "/repos/app.git")
+    WebDriverWait(browser, 5).until(
+        lambda d: d.execute_script(
+            "const v = document.querySelector('gf-view');"
+            "return v && v.shadowRoot && !!v.shadowRoot.querySelector('.graph-sha')"
+        )
+    )
+    # the page uses the whole viewport width
+    assert browser.execute_script(
+        "return document.getElementById('gf-main').getBoundingClientRect().width"
+        " === document.documentElement.clientWidth"
+    )
+
+    # a commit's patch soft-wraps by default
+    browser.execute_script(
+        "document.querySelector('gf-view').shadowRoot.querySelector('.graph-sha').click()"
+    )
+    WebDriverWait(browser, 5).until(
+        lambda d: d.execute_script(PATCH_WHITE_SPACE) == "pre-wrap"
+    )
+
+    # the JS-revealed toggle switches to horizontal scrolling…
+    browser.execute_script(
+        "const root = document.querySelector('gf-view').shadowRoot;"
+        "root.querySelector('.wrap-toggle input').click()"
+    )
+    WebDriverWait(browser, 5).until(lambda d: d.execute_script(PATCH_WHITE_SPACE) == "pre")
+
+    # …and the choice survives a full page load
+    browser.refresh()
+    WebDriverWait(browser, 5).until(lambda d: d.execute_script(PATCH_WHITE_SPACE) == "pre")
+    browser.execute_script("localStorage.removeItem('gf-wrap')")
