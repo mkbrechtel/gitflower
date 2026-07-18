@@ -5,7 +5,7 @@ geometry: commits in, SVG coordinates out — no git, no I/O. The input is the
 commit list from gitread.commits(), which comes child-before-parent; that
 ordering is what makes a single forward pass enough.
 
-Two things happen here:
+Three things happen here:
 
 * **collapse** — a run of consecutive commits that is plainly linear (one
   parent, one child, no ref pointing at it) carries no shape. A run of
@@ -17,6 +17,17 @@ Two things happen here:
   an extra parent is the link's *corridor*: the edge rides it the whole way
   and folds into the parent's dot at the end, so a parent link always
   reaches its commit and never runs along another branch's line.
+* **untangle** — the forward pass hands out columns greedily (leftmost free
+  lane wins), which can leave lines crossing each other for no reason. A
+  post-pass reorders the columns right of the pinned block to minimize
+  the number of edge crossings, then the sideways travel. The pinned
+  branches' reserved leftmost columns never move; the travel tiebreak
+  pulls every other line toward the lanes it forks from, folds into, and
+  merges from — a short-lived branch ends up hugging the pinned block,
+  not parked at the far edge. Moving a column wholesale keeps every
+  invariant the forward pass established — a corridor's guaranteed-empty
+  stretch travels with its column — so the result is the same graph,
+  combed.
 """
 
 import zlib
@@ -115,7 +126,7 @@ def _collapse(commits: list[dict], tips: set[str], min_run: int) -> list[dict]:
     return nodes
 
 
-def _place(nodes: list[dict], branch_of: dict[str, str], pin_order: list[str]) -> list[dict]:
+def _place(nodes: list[dict], branch_of: dict[str, str], pin_lane: dict[str, int]) -> list[dict]:
     """Assign every node a row and a lane, walking newest to oldest — and
     record, for every merge's extra parent, the **corridor**: the lane its
     link line travels. A lane that is waiting for a sha never receives any
@@ -128,22 +139,29 @@ def _place(nodes: list[dict], branch_of: dict[str, str], pin_order: list[str]) -
 
     Branch attribution (`branch_of`, may be empty) refines two guesses:
     the leftmost lanes are held for the pinned branches whose commits are
-    shown — one lane each, in `pin_order` — and a commit with several lanes
+    shown — one lane each, per `pin_lane` — and a commit with several lanes
     waiting for it lands on its own branch's lane instead of simply the
-    leftmost."""
+    leftmost.
+
+    Every row and corridor also gets a **segment** id: one id per
+    continuous line, from the row or merge that opens a lane to the fold
+    or root that closes it. A lane reused later is a new segment. The
+    untangle pass moves segments, not lanes — two lines that happen to
+    share a column at different times are free to part ways."""
     lanes: list[str | None] = []  # lane -> the sha it is waiting for
     fresh: list[int | None] = []  # reserved-at row, while no dot sits on the lane
     lane_branch: list[str | None] = []  # the branch whose line rides the lane
-    pending: list[list] = []  # [child row dict, parent sha, corridor lane]
+    lane_seg: list[int | None] = []  # the segment whose line rides the lane
+    pending: list[list] = []  # [child row dict, parent sha, corridor lane, segment]
     rows: list[dict] = []
-    present = {branch_of.get(n["id"]) for n in nodes}
-    pin_lane = {b: i for i, b in enumerate(b for b in pin_order if b in present)}
     reserved = len(pin_lane)
+    segments = 0
 
     def grow() -> int:
         lanes.append(None)
         fresh.append(None)
         lane_branch.append(None)
+        lane_seg.append(None)
         return len(lanes) - 1
 
     def free_lane(branch: str | None) -> int:
@@ -176,6 +194,7 @@ def _place(nodes: list[dict], branch_of: dict[str, str], pin_order: list[str]) -
             lanes.insert(pos, None)
             fresh.insert(pos, None)
             lane_branch.insert(pos, None)
+            lane_seg.insert(pos, None)
             for link in pending:
                 if link[2] >= pos:
                     link[2] += 1
@@ -204,37 +223,286 @@ def _place(nodes: list[dict], branch_of: dict[str, str], pin_order: list[str]) -
             lane = (matched or waiting)[0]
         else:
             lane = free_lane(branch)  # a tip: nothing was expecting it
+        if lane in waiting:
+            seg = lane_seg[lane]  # the line waiting here continues
+        else:
+            seg, segments = segments, segments + 1  # a line begins
         for merged_in in waiting:
             if merged_in != lane:
                 lanes[merged_in] = None  # those branches end here
                 fresh[merged_in] = None
                 lane_branch[merged_in] = None
+                lane_seg[merged_in] = None
 
         # links waiting for this commit now know their final corridor
         for link in pending:
             if link[1] == node["id"]:
                 link[0]["corridors"][link[1]] = link[2]
+                link[0]["corridor_seg"][link[1]] = link[3]
         pending = [link for link in pending if link[1] != node["id"]]
 
-        placed = {**node, "row": row, "lane": lane, "branch": branch, "corridors": {}}
+        placed = {
+            **node,
+            "row": row,
+            "lane": lane,
+            "branch": branch,
+            "seg": seg,
+            "corridors": {},
+            "corridor_seg": {},
+        }
         parents = node["parents"]
         lanes[lane] = parents[0] if parents else None
         fresh[lane] = None  # a dot sits here; the stretch below hangs off it
         lane_branch[lane] = branch
+        lane_seg[lane] = seg if parents else None
         for parent in parents[1:]:  # a merge forks a lane per extra parent
             if parent in lanes:
                 corridor = lanes.index(parent)  # ride the parent's own line
+                corridor_seg = lane_seg[corridor]
             else:
                 corridor = corridor_lane(lane)
+                corridor_seg, segments = segments, segments + 1
                 lanes[corridor] = parent
                 fresh[corridor] = row
                 # a corridor is a link, not a branch line — left unattributed
                 # so the dot prefers the parent's real line when one waits
                 lane_branch[corridor] = None
-            pending.append([placed, parent, corridor])
+                lane_seg[corridor] = corridor_seg
+            pending.append([placed, parent, corridor, corridor_seg])
 
         rows.append(placed)
     return rows
+
+
+def _strands(rows: list[dict]) -> tuple[list[tuple], dict[int, list[int]], dict[int, list[int]]]:
+    """The layout's geometry, reduced to what can cross: **bends** — the one
+    row-gap where an edge slides sideways, `(gap, from line, to line)` —
+    and **runs** — per row-gap, the lines passing straight through. Lines
+    are named by segment id, not lane, so the untangle pass can move each
+    line on its own. Also gathered: every segment's row **extent**, the
+    stretch it needs its column for — two segments may share a column
+    exactly when their extents do not meet. The case analysis mirrors
+    _edges; a gap `g` is the space between rows `g` and `g+1`."""
+    at = {row["id"]: row for row in rows}
+    bends: list[tuple] = []
+    runs: dict[int, list[int]] = {}
+    extents: dict[int, list[int]] = {}
+
+    def touch(seg: int, top: int, bottom: int) -> None:
+        span = extents.setdefault(seg, [top, bottom])
+        span[0], span[1] = min(span[0], top), max(span[1], bottom)
+
+    def run(seg: int, top: int, bottom: int) -> None:
+        touch(seg, top, bottom)
+        for gap in range(top, bottom):
+            runs.setdefault(gap, []).append(seg)
+
+    def bend(gap: int, top_seg: int, bottom_seg: int) -> None:
+        touch(top_seg, gap, gap)  # the bend leaves its column at the gap
+        bends.append((gap, top_seg, bottom_seg))
+
+    for row in rows:
+        r0, sc = row["row"], row["seg"]
+        touch(sc, r0, r0)
+        for parent in row["parents"]:
+            target = at.get(parent)
+            if target is None:
+                run(sc, r0, r0 + 1)  # the truncation stub hangs into the gap
+                continue
+            corridor = row["corridors"].get(parent, row["lane"])
+            sk = row["corridor_seg"].get(parent, sc)
+            r1, plane, sp = target["row"], target["lane"], target["seg"]
+            if corridor == row["lane"] == plane:
+                run(sc, r0, r1)
+            elif corridor == row["lane"]:
+                run(sc, r0, r1 - 1)
+                bend(r1 - 1, sc, sp)
+            elif corridor == plane:
+                bend(r0, sc, sk)
+                run(sp, r0 + 1, r1)
+            elif r1 - r0 == 1:
+                bend(r0, sc, sp)
+            else:
+                bend(r0, sc, sk)
+                run(sk, r0 + 1, r1 - 1)
+                bend(r1 - 1, sk, sp)
+    return bends, runs, extents
+
+
+def _columns(rows: list[dict]) -> dict[int, int]:
+    """Each segment's column, read off the placed rows and corridors. A
+    corridor whose parent fell past the truncation limit resolves to no
+    drawn geometry at all and stays absent — there is nothing to move."""
+    col: dict[int, int] = {}
+    for row in rows:
+        col[row["seg"]] = row["lane"]
+        for parent, seg in row["corridor_seg"].items():
+            col.setdefault(seg, row["corridors"][parent])
+    return col
+
+
+def _rivals(bends: list[tuple], runs: dict[int, list[int]]) -> list[tuple]:
+    """Every pair of lines that shares a row-gap and so *could* cross,
+    flattened to 4-tuples of segments `(top, bottom, top', bottom')`.
+    Which pairs exist never changes while lines change columns — only
+    where each line sits does — so the search precomputes this once and
+    re-scores assignments cheaply. A straight run is a bend that goes
+    nowhere; runs never meet other runs (two lines cannot converge
+    without bending), so only bend×run and bend×bend pairs are kept."""
+    pairs: list[tuple] = []
+    by_gap: dict[int, list[tuple[int, int]]] = {}
+    for gap, top, bottom in bends:
+        for seg in set(runs.get(gap, ())):
+            pairs.append((top, bottom, seg, seg))
+        by_gap.setdefault(gap, []).append((top, bottom))
+    for group in by_gap.values():
+        for i, (t1, b1) in enumerate(group):
+            for t2, b2 in group[i + 1 :]:
+                pairs.append((t1, b1, t2, b2))
+    return pairs
+
+
+def _tangles(pairs: list[tuple], col: list[int]) -> int:
+    """How many rival pairs cross when segment `s` sits on column `col[s]`.
+    Two lines sharing a row-gap cross when their order flips between the
+    gap's top and bottom: `(top - top') * (bottom - bottom') < 0`. Shared
+    endpoints (a fan-in folding into one dot) give zero, not a crossing."""
+    return sum(
+        1 for t1, b1, t2, b2 in pairs if (col[t1] - col[t2]) * (col[b1] - col[b2]) < 0
+    )
+
+
+def _untangle(rows: list[dict], reserved: int) -> None:
+    """Move the lines so the edges cross as few times as possible — and
+    among equal-crossing layouts, travel sideways the least and keep left.
+    The forward pass fixed everything that matters — what is a line, where
+    corridors run — so lines can change columns freely without breaking
+    any of it. The pinned branches' reserved columns stay the leftmost,
+    untouched; crossings over them that only moving a reserved column
+    could undo are the accepted price. Everything else optimizes within
+    that restraint, at three grains: whole columns swap or slide past
+    each other, a single segment hops to any column whose occupants don't
+    overlap its rows, and two overlapping segments trade columns — the
+    move that unwinds a stack of merges into its crossing-free onion,
+    where single hops deadlock on each other's occupancy. A trial is
+    scored by re-checking only the rival pairs that touch the moved
+    segments, so the budget goes into moves, not arithmetic. Hill-climb,
+    keeping strict improvements, until no move helps (or the eval budget
+    runs out — each improvement lowers a bounded non-negative score, so
+    this terminates)."""
+    width = 1 + max(
+        (max(row["lane"], *row["corridors"].values(), 0) for row in rows), default=0
+    )
+    if width - reserved < 2:
+        return
+    bends, runs, extents = _strands(rows)
+    if not bends:
+        return  # nothing bends, so nothing can cross and nothing travels
+    pairs = _rivals(bends, runs)
+    col = _columns(rows)
+    movable = sorted(seg for seg, c in col.items() if c >= reserved)
+    pairs_of: dict[int, list[int]] = {}
+    for i, (t1, b1, t2, b2) in enumerate(pairs):
+        for seg in {t1, b1, t2, b2}:
+            pairs_of.setdefault(seg, []).append(i)
+    bends_of: dict[int, list[int]] = {}
+    for i, (_, top, bottom) in enumerate(bends):
+        for seg in {top, bottom}:
+            bends_of.setdefault(seg, []).append(i)
+
+    occupants: dict[int, set[int]] = {}
+    for seg, c in col.items():
+        occupants.setdefault(c, set()).add(seg)
+
+    def fits(seg: int, target: int, evicted: int | None = None) -> bool:
+        lo, hi = extents[seg]
+        return not any(
+            other != seg
+            and other != evicted
+            and extents[other][0] <= hi
+            and lo <= extents[other][1]
+            for other in occupants.get(target, ())
+        )
+
+    cross = _tangles(pairs, col)
+    wire = sum(abs(col[top] - col[bottom]) for _, top, bottom in bends)
+    left = sum(col.values())
+    budget = 300_000  # counted in pair re-checks, the unit of trial work
+    improved = True
+
+    def moved_to(moved: dict[int, int]) -> bool:
+        """Score `moved` by the delta it makes and keep it if it wins: apply,
+        re-check the touched pairs, revert unless the score dropped."""
+        nonlocal cross, wire, left, budget, improved
+        if not moved:
+            return False
+        touched_pairs: set[int] = set()
+        touched_bends: set[int] = set()
+        for seg in moved:
+            touched_pairs.update(pairs_of.get(seg, ()))
+            touched_bends.update(bends_of.get(seg, ()))
+        budget -= len(touched_pairs) + len(touched_bends)
+        dc = dw = 0
+        for i in touched_pairs:
+            t1, b1, t2, b2 = pairs[i]
+            dc -= (col[t1] - col[t2]) * (col[b1] - col[b2]) < 0
+        for i in touched_bends:
+            _, top, bottom = bends[i]
+            dw -= abs(col[top] - col[bottom])
+        undo = {seg: col[seg] for seg in moved}
+        col.update(moved)
+        for i in touched_pairs:
+            t1, b1, t2, b2 = pairs[i]
+            dc += (col[t1] - col[t2]) * (col[b1] - col[b2]) < 0
+        for i in touched_bends:
+            _, top, bottom = bends[i]
+            dw += abs(col[top] - col[bottom])
+        dl = sum(moved[seg] - undo[seg] for seg in moved)
+        if (cross + dc, wire + dw, left + dl) >= (cross, wire, left):
+            col.update(undo)
+            return False
+        cross, wire, left = cross + dc, wire + dw, left + dl
+        for seg, target in moved.items():
+            occupants[undo[seg]].discard(seg)
+            occupants.setdefault(target, set()).add(seg)
+        improved = True
+        return True
+
+    overlapping = [
+        (a, b)
+        for i, a in enumerate(movable)
+        for b in movable[i + 1 :]
+        if extents[a][0] <= extents[b][1] and extents[b][0] <= extents[a][1]
+    ]
+    while improved and budget > 0:
+        improved = False
+        # single lines hop to any column with room for their rows…
+        for seg in movable:
+            for target in range(reserved, width):
+                if budget <= 0 or target == col[seg] or not fits(seg, target):
+                    continue
+                moved_to({seg: target})
+        # …overlapping lines trade columns, which no chain of hops can…
+        for a, b in overlapping:
+            if budget <= 0 or col[a] == col[b]:
+                continue
+            if fits(a, col[b], evicted=b) and fits(b, col[a], evicted=a):
+                moved_to({a: col[b], b: col[a]})
+        # …and, the costly trials last, whole columns swap or slide
+        for i in range(reserved, width):
+            for j in range(reserved, width):
+                if i == j or budget <= 0:
+                    continue
+                if j > i:  # slide column i out to j…
+                    remap = {c: j if c == i else c - 1 if i < c <= j else c for c in range(width)}
+                else:  # …or back in before it
+                    remap = {c: j if c == i else c + 1 if j <= c < i else c for c in range(width)}
+                slid = moved_to({seg: remap[c] for seg, c in col.items() if remap[c] != c})
+                if not slid and j > i and budget > 0:  # else the plain swap of the two
+                    moved_to({seg: j if c == i else i for seg, c in col.items() if c in (i, j)})
+    for row in rows:
+        row["lane"] = col[row["seg"]]
+        row["corridors"] = {p: col[s] for p, s in row["corridor_seg"].items()}
 
 
 def _edges(rows: list[dict], trunk: str | None = None) -> list[dict]:
@@ -318,10 +586,16 @@ def build(
     accent colour, every branch keeps a stable colour of its own. `pinned`
     branches (exact names, in display order) hold the leftmost lanes and
     their commits render as filled dots; without it the trunk alone holds
-    lane 0. `dimmed` shas (commits only hidden branches reach) grey out."""
+    lane 0 — either way the remaining columns are then reordered to
+    minimize edge crossings, lines settling as close as possible to the
+    lanes they interact with. `dimmed` shas (commits only hidden branches
+    reach) grey out."""
     pin_order = list(pinned) if pinned else ([trunk] if trunk else [])
     nodes = _collapse(commits, tips, MIN_COLLAPSE if collapse else len(commits) + 1)
-    rows = _place(nodes, branch_of or {}, pin_order)
+    present = {(branch_of or {}).get(node["id"]) for node in nodes}
+    pin_lane = {b: i for i, b in enumerate(b for b in pin_order if b in present)}
+    rows = _place(nodes, branch_of or {}, pin_lane)
+    _untangle(rows, len(pin_lane))
     pin_set = set(pinned or [])
     dimmed = dimmed or set()
     for row in rows:
