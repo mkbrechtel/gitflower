@@ -48,8 +48,11 @@ def hosted(tmp_path):
     git(work, "commit", "-m", "side work")
     git(work, "checkout", "-b", "merged", "main")
     git(work, "merge", "--no-ff", "side", "-m", "merge side")
+    git(work, "checkout", "-b", "archive/retired", "main")
+    (work / "retired.txt").write_text("retired\n")
+    git(work, "add", ".")
+    git(work, "commit", "-m", "retired work")
     git(work, "checkout", "main")
-    git(work, "branch", "archive/retired", "main")
     git(work, "push", "origin", "main", "work/feature/thing", "merged", "archive/retired")
     return root
 
@@ -117,6 +120,29 @@ def test_repo_detail_carries_graph_and_branches(client):
     assert [b["name"] for b in data["branches"]] == ["main", "merged", "work/feature/thing"]
     assert data["graph"]["rows"] and data["graph"]["width"] > 0
     assert data["clone_url"].endswith("/repos/app.git")
+
+
+def test_hidden_branches_expand_and_grey_out(client):
+    data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
+    assert data["hidden_count"] == 1 and data["show_hidden"] is False
+    subjects = [r["commit"]["subject"] for r in data["graph"]["rows"] if r["kind"] == "commit"]
+    assert "retired work" not in subjects
+    page = client.get("/repos/app.git")
+    assert "1 hidden branch" in page.text and "?hidden=1" in page.text
+
+    data = client.get("/repos/app.git?hidden=1", headers={"Accept": "application/json"}).json()
+    assert data["show_hidden"] is True
+    assert [b["name"] for b in data["branches"] if b["hidden"]] == ["archive/retired"]
+    rows = {r["commit"]["subject"]: r for r in data["graph"]["rows"] if r["kind"] == "commit"}
+    # only the archived branch's own commit greys out — its base is main's
+    assert rows["retired work"]["dimmed"] is True
+    assert rows["feature commit"]["dimmed"] is False
+    assert rows["add binary"]["dimmed"] is False
+    # pinned main renders filled, other branches hollow
+    assert rows["add binary"]["pinned"] is True
+    assert rows["feature commit"]["pinned"] is False
+    page = client.get("/repos/app.git?hidden=1")
+    assert "graph-dimmed" in page.text and "(hidden)" in page.text
 
 
 def test_graph_folds_and_full_unfolds(client):

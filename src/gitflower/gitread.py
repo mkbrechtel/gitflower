@@ -161,12 +161,14 @@ def head_branch(repo: pygit2.Repository) -> str | None:
 
 
 def branches(repo: pygit2.Repository, pinned=(), hidden=()) -> list[dict]:
-    """Branch tips for display: hidden folders dropped, pinned ones first.
+    """All branch tips for display, flagged and ordered — nothing filtered.
 
     A pinned/hidden entry matches the branch of that exact name or any
-    branch under that folder ("releases" pins releases/v1). Pinned entries
-    come first in their configured order; the rest are grouped by branch
-    folder alphabetically, branches within a folder by name."""
+    branch under that folder ("releases" pins releases/v1). Pinned branches
+    lead the list in their configured order; the rest are grouped by branch
+    folder alphabetically, branches within a folder by name, hidden ones
+    last. Each dict carries `pinned`/`hidden` flags; the caller decides
+    what a hidden branch means."""
     pinned = list(pinned)
 
     def rank(name: str) -> int:
@@ -176,7 +178,7 @@ def branches(repo: pygit2.Repository, pinned=(), hidden=()) -> list[dict]:
         return len(pinned)
 
     result = []
-    for name, commit in _branch_tips(repo, hidden).items():
+    for name, commit in _branch_tips(repo).items():
         result.append(
             {
                 "name": name,
@@ -184,12 +186,33 @@ def branches(repo: pygit2.Repository, pinned=(), hidden=()) -> list[dict]:
                 "short": str(commit.short_id),
                 "date": _commit_date(commit),
                 "subject": commit.message.splitlines()[0] if commit.message else "",
+                "pinned": rank(name) < len(pinned),
+                "hidden": _in_folders(name, hidden),
             }
         )
     result.sort(
-        key=lambda b: (rank(b["name"]), b["name"].split("/")[:-1], b["name"].split("/")[-1])
+        key=lambda b: (
+            rank(b["name"]),
+            b["hidden"],
+            b["name"].split("/")[:-1],
+            b["name"].split("/")[-1],
+        )
     )
     return result
+
+
+def reachable(commits: list[dict], tips: set[str]) -> set[str]:
+    """Shas reachable from `tips` following parent links within `commits`."""
+    by_sha = {c["sha"]: c for c in commits}
+    seen: set[str] = set()
+    stack = [sha for sha in tips if sha in by_sha]
+    while stack:
+        sha = stack.pop()
+        if sha in seen:
+            continue
+        seen.add(sha)
+        stack.extend(p for p in by_sha[sha]["parents"] if p in by_sha)
+    return seen
 
 
 def _commit_dict(commit: pygit2.Commit) -> dict:
