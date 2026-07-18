@@ -54,6 +54,8 @@ def test_global_config_defaults(tmp_path, monkeypatch):
     assert loaded.repos.scan_depth == 3
     assert loaded.repos.default_branch == "main"
     assert loaded.web.address == ":8747"
+    assert loaded.web.pinned_branches == ["main", "integration", "releases"]
+    assert loaded.web.hidden_branches == ["archive"]
 
 
 def test_global_config_explicit_path(tmp_path):
@@ -62,7 +64,11 @@ def test_global_config_explicit_path(tmp_path):
         yaml.safe_dump(
             {
                 "repos": {"directory": "/srv/repos", "scan_depth": 5},
-                "web": {"address": "127.0.0.1:9000"},
+                "web": {
+                    "address": "127.0.0.1:9000",
+                    "pinned_branches": ["trunk"],
+                    "hidden_branches": ["attic", "graveyard"],
+                },
                 "log": {"level": "info"},  # foreign section: ignored
             }
         )
@@ -72,6 +78,8 @@ def test_global_config_explicit_path(tmp_path):
     assert loaded.repos.scan_depth == 5
     assert loaded.repos.default_branch == "main"
     assert loaded.web.address == "127.0.0.1:9000"
+    assert loaded.web.pinned_branches == ["trunk"]
+    assert loaded.web.hidden_branches == ["attic", "graveyard"]
     assert loaded.path == path
 
 

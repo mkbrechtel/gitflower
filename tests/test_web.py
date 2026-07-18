@@ -49,7 +49,8 @@ def hosted(tmp_path):
     git(work, "checkout", "-b", "merged", "main")
     git(work, "merge", "--no-ff", "side", "-m", "merge side")
     git(work, "checkout", "main")
-    git(work, "push", "origin", "main", "work/feature/thing", "merged")
+    git(work, "branch", "archive/retired", "main")
+    git(work, "push", "origin", "main", "work/feature/thing", "merged", "archive/retired")
     return root
 
 
@@ -112,7 +113,8 @@ def test_repo_detail_carries_graph_and_branches(client):
     assert f'<a class="graph-sha" href="/repos/app.git/commit/' in page.text
     assert f'<a href="/repos/app.git/commit/{tip["sha"]}"><code>{tip["short"]}</code></a>' in page.text
     data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
-    assert {b["name"] for b in data["branches"]} == {"main", "work/feature/thing", "merged"}
+    # main pinned first, archive/retired hidden — both by default config
+    assert [b["name"] for b in data["branches"]] == ["main", "merged", "work/feature/thing"]
     assert data["graph"]["rows"] and data["graph"]["width"] > 0
     assert data["clone_url"].endswith("/repos/app.git")
 

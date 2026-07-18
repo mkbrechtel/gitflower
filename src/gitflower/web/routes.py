@@ -252,14 +252,18 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
 
     def _repo_detail(request: Request, repo_path: str, full: bool) -> Response:
         repo = repo_or_404(repo_path)
-        commits = gitread.commits(repo, GRAPH_LIMIT)
-        branches = [models.Branch(**b) for b in gitread.branches(repo)]
+        hidden = cfg.web.hidden_branches
+        commits = gitread.commits(repo, GRAPH_LIMIT, hidden=hidden)
+        branches = [
+            models.Branch(**b)
+            for b in gitread.branches(repo, pinned=cfg.web.pinned_branches, hidden=hidden)
+        ]
         trunk = gitread.head_branch(repo)
         laid_out = graph.build(
             commits,
             {b.sha for b in branches},
             collapse=not full,
-            branch_of=gitread.born_on(repo, commits, trunk),
+            branch_of=gitread.born_on(repo, commits, trunk, hidden=hidden),
             trunk=trunk,
         )
         data = models.RepoDetail(
