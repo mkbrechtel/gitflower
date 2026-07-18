@@ -34,6 +34,8 @@ class Branch:
     short: str
     date: str
     subject: str
+    pinned: bool = False
+    hidden: bool = False
 
 
 @dataclass
@@ -54,6 +56,7 @@ class GraphEdge:
     color: str
     lanes: list[int]
     stub: bool
+    dimmed: bool = False
 
 
 @dataclass
@@ -70,6 +73,8 @@ class GraphRow:
     y: float
     color: str
     branch: str | None = None
+    pinned: bool = False
+    dimmed: bool = False  # only hidden branches reach this commit
     commit: Commit | None = None
     count: int | None = None
     first: Commit | None = None
@@ -98,6 +103,8 @@ class RepoDetail:
     full: bool
     total_shown: int
     clone_url: str
+    show_hidden: bool = False
+    hidden_count: int = 0  # branches hidden by config (shown when show_hidden)
 
 
 @dataclass

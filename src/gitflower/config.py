@@ -140,6 +140,13 @@ class ReposConfig:
 @dataclass
 class WebConfig:
     address: str = ":8747"
+    # entries match a branch of that exact name or any branch under that
+    # folder — pinned ones lead the repo view's branch list in this order,
+    # hidden ones disappear from it (and from the commit graph)
+    pinned_branches: list[str] = field(
+        default_factory=lambda: ["main", "integration", "releases"]
+    )
+    hidden_branches: list[str] = field(default_factory=lambda: ["archive"])
 
 
 @dataclass

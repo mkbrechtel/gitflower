@@ -111,6 +111,7 @@ GRAPH_CSS = """
 .graph-subject a { color: var(--fg); }
 .graph-when { flex: none; color: var(--fg-dim); font-size: 0.75rem; }
 .graph-gap a { font-family: var(--mono); color: var(--fg-dim); }
+.graph-dimmed { opacity: 0.55; }
 .graph-note { font-size: 0.8rem; color: var(--fg-dim); }
 .ref { flex: none; font-family: var(--mono); font-size: 0.72rem; padding: 0 0.4em; border: 1px solid var(--accent); border-radius: 8px; color: var(--accent); }
 @media (max-width: 640px) { .graph-row .graph-when { display: none; } }
@@ -125,44 +126,60 @@ def _on_branch(row: dict) -> str:
     return f' data-branch="{esc(branch)}" title="on {esc(branch)}"'
 
 
-def _graph_svg(graph: dict, repo_url: str, tips: dict, full: bool) -> str:
+def _qs(**flags: bool) -> str:
+    """Query string for the repo view's toggles: only the raised ones."""
+    on = [f"{name}=1" for name, raised in flags.items() if raised]
+    return "?" + "&".join(on) if on else ""
+
+
+def _graph_svg(
+    graph: dict, repo_url: str, tips: dict, full: bool, show_hidden: bool, hidden_count: int
+) -> str:
     """The commit graph: an SVG of lanes behind fixed-height rows (cyblox
     pattern). Edges carry data-lanes, rows data-lane — components.js uses
-    them for hover highlighting."""
+    them for hover highlighting. Pinned branches' commits are filled dots."""
     edges = []
     for edge in graph["edges"]:
-        dash = ' stroke-dasharray="2 3" opacity="0.5"' if edge["stub"] else ""
+        dash = ' stroke-dasharray="2 3"' if edge["stub"] else ""
+        faint = "0.35" if edge.get("dimmed") else "0.5" if edge["stub"] else ""
+        opacity = f' opacity="{faint}"' if faint else ""
         lanes = " ".join(str(lane) for lane in edge["lanes"])
         edges.append(
             f'<path d="{edge["d"]}" fill="none" stroke="{edge["color"]}" '
-            f'stroke-width="1.6" data-lanes="{lanes}"{dash}/>'
+            f'stroke-width="1.6" data-lanes="{lanes}"{dash}{opacity}/>'
         )
+    unfold = repo_url + _qs(full=True, hidden=show_hidden)
     shapes = []
     rows = []
     for row in graph["rows"]:
+        faded = ' opacity="0.4"' if row.get("dimmed") else ""
+        dim_cls = " graph-dimmed" if row.get("dimmed") else ""
         if row["kind"] == "gap":
             shapes.append(
                 f'<rect x="{row["x"] - 3.5}" y="{row["y"] - 8}" width="7" height="16" rx="3.5" '
-                f'fill="var(--bg)" stroke="{row["color"]}" stroke-width="1.6" stroke-dasharray="2 2"/>'
+                f'fill="var(--bg)" stroke="{row["color"]}" stroke-width="1.6" '
+                f'stroke-dasharray="2 2"{faded}/>'
             )
             rows.append(
-                f'<li class="graph-row graph-gap" data-lane="{row["lane"]}"{_on_branch(row)}>'
-                f'<a href="{repo_url}?full=1">⋯ {row["count"]} commits</a>'
+                f'<li class="graph-row graph-gap{dim_cls}" '
+                f'data-lane="{row["lane"]}"{_on_branch(row)}>'
+                f'<a href="{unfold}">⋯ {row["count"]} commits</a>'
                 f'<span class="graph-when">{esc(row["last"]["date"][:10])} – {esc(row["first"]["date"][:10])}</span>'
                 "</li>"
             )
             continue
         commit = row["commit"]
+        fill = row["color"] if row.get("pinned") else "var(--bg)"
         shapes.append(
             f'<circle cx="{row["x"]}" cy="{row["y"]}" r="{graph["dot"]}" '
-            f'fill="var(--bg)" stroke="{row["color"]}" stroke-width="1.8"/>'
+            f'fill="{fill}" stroke="{row["color"]}" stroke-width="1.8"{faded}/>'
         )
         chips = "".join(
             f'<span class="ref">{esc(name)}</span>' for name in tips.get(commit["sha"], [])
         )
         commit_url = f"{repo_url}/commit/{esc(commit['sha'])}"
         rows.append(
-            f'<li class="graph-row" data-lane="{row["lane"]}"{_on_branch(row)} id="c-{esc(commit["short"])}">'
+            f'<li class="graph-row{dim_cls}" data-lane="{row["lane"]}"{_on_branch(row)} id="c-{esc(commit["short"])}">'
             f'<a class="graph-sha" href="{commit_url}"><code>{esc(commit["short"])}</code></a>{chips}'
             f'<span class="graph-subject"><a href="{commit_url}">{esc(commit["subject"])}</a></span>'
             f'<span class="graph-when">{esc(commit["author"])} · {esc(commit["date"][:10])}</span>'
@@ -172,10 +189,22 @@ def _graph_svg(graph: dict, repo_url: str, tips: dict, full: bool) -> str:
     if graph["collapsed"]:
         note = (
             f'{graph["collapsed"]} linear commits folded away — '
-            f'<a href="{repo_url}?full=1">show every commit</a>.'
+            f'<a href="{unfold}">show every commit</a>.'
         )
     elif full:
-        note = f'<a href="{repo_url}">fold linear stretches</a>.'
+        note = f'<a href="{repo_url + _qs(hidden=show_hidden)}">fold linear stretches</a>.'
+    if hidden_count:
+        plural = "branches" if hidden_count != 1 else "branch"
+        if show_hidden:
+            note += (
+                f' <a href="{repo_url + _qs(full=full)}">'
+                f"hide {hidden_count} hidden {plural}</a>."
+            )
+        else:
+            note += (
+                f" {hidden_count} hidden {plural} — "
+                f'<a href="{repo_url + _qs(full=full, hidden=True)}">show</a>.'
+            )
     return f"""
 <div class="graph" style="--graph-row: {graph["row_height"]}px; --graph-gutter: {graph["width"] + 10}px;">
   <svg class="graph-svg" width="{graph["width"]}" height="{graph["height"]}" viewBox="0 0 {graph["width"]} {graph["height"]}" aria-hidden="true">
@@ -193,7 +222,8 @@ def repo(data: dict) -> str:
     for branch in data["branches"]:
         tips.setdefault(branch["sha"], []).append(branch["name"])
     branch_rows = "".join(
-        f'<tr><td><a href="{url}/tree/{esc(b["name"])}/">{esc(b["name"])}</a></td>'
+        f'<tr><td><a href="{url}/tree/{esc(b["name"])}/">{esc(b["name"])}</a>'
+        f'{" <span class=dim>(hidden)</span>" if b["hidden"] else ""}</td>'
         f'<td><a href="{url}/commit/{esc(b["sha"])}"><code>{esc(b["short"])}</code></a></td>'
         f'<td class="dim">{esc(b["date"][:10])}</td>'
         f"<td>{esc(b['subject'])}</td></tr>"
@@ -209,7 +239,7 @@ def repo(data: dict) -> str:
 {_crumbs(("repos", "/repos/"), (data["path"], None))}
 <h1>{esc(data["path"])}</h1>
 <h2>Graph</h2>
-{_graph_svg(data["graph"], url, tips, data["full"])}
+{_graph_svg(data["graph"], url, tips, data["full"], data["show_hidden"], data["hidden_count"])}
 <h2>Branches</h2>
 {branches}
 <h2>Clone (read-only)</h2>

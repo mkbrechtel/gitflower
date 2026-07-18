@@ -103,6 +103,75 @@ def test_tree_and_blob(seeded):
         gitread.tree_entries(repo, "does-not-exist")
 
 
+@pytest.fixture
+def folders(seeded, tmp_path):
+    """seeded plus folder branches, one with its own commit (archive)."""
+    work = tmp_path / "seed"
+    for name in ("work/fix/hook-install", "work/feature/web-ui", "releases/v1"):
+        git(work, "branch", name)
+        git(work, "push", "origin", name)
+    git(work, "checkout", "-b", "archive/old-thing")
+    (work / "old.txt").write_text("old")
+    git(work, "add", ".")
+    git(work, "commit", "-m", "archived work")
+    git(work, "push", "origin", "archive/old-thing")
+    return seeded
+
+
+def test_branches_grouped_by_folder(folders):
+    repo = gitread.open_repo(folders, "app.git")
+    assert [b["name"] for b in gitread.branches(repo)] == [
+        "main",
+        "open",
+        "side",
+        "archive/old-thing",
+        "releases/v1",
+        "work/feature/web-ui",
+        "work/fix/hook-install",
+    ]
+
+
+def test_branches_pinned_and_hidden(folders):
+    repo = gitread.open_repo(folders, "app.git")
+    listed = gitread.branches(repo, pinned=["main", "releases"], hidden=["archive", "side"])
+    # pinned lead in config order, hidden sort last — nothing is filtered
+    assert [b["name"] for b in listed] == [
+        "main",
+        "releases/v1",
+        "open",
+        "work/feature/web-ui",
+        "work/fix/hook-install",
+        "side",
+        "archive/old-thing",
+    ]
+    flags = {b["name"]: (b["pinned"], b["hidden"]) for b in listed}
+    assert flags["main"] == (True, False)
+    assert flags["releases/v1"] == (True, False)
+    assert flags["side"] == (False, True)
+    assert flags["archive/old-thing"] == (False, True)
+    assert flags["open"] == (False, False)
+
+
+def test_reachable_finds_what_live_branches_follow_up_on(folders):
+    repo = gitread.open_repo(folders, "app.git")
+    commits = gitread.commits(repo)
+    live = {b["sha"] for b in gitread.branches(repo) if b["name"] != "archive/old-thing"}
+    reach = gitread.reachable(commits, live)
+    exclusive = [c["sha"] for c in commits if c["subject"] == "archived work"]
+    assert exclusive and exclusive[0] not in reach
+    assert all(c["sha"] in reach for c in commits if c["subject"] != "archived work")
+
+
+def test_hidden_branches_leave_the_graph(folders):
+    repo = gitread.open_repo(folders, "app.git")
+    subjects = {c["subject"] for c in gitread.commits(repo)}
+    assert "archived work" in subjects
+    shown = gitread.commits(repo, hidden=["archive"])
+    assert "archived work" not in {c["subject"] for c in shown}
+    born = gitread.born_on(repo, shown, "main", hidden=["archive"])
+    assert "archive/old-thing" not in born.values()
+
+
 def test_commit_detail_patch(seeded):
     repo = gitread.open_repo(seeded, "app.git")
     tip = gitread.branches(repo)

@@ -115,7 +115,7 @@ def _collapse(commits: list[dict], tips: set[str], min_run: int) -> list[dict]:
     return nodes
 
 
-def _place(nodes: list[dict], branch_of: dict[str, str], trunk: str | None) -> list[dict]:
+def _place(nodes: list[dict], branch_of: dict[str, str], pin_order: list[str]) -> list[dict]:
     """Assign every node a row and a lane, walking newest to oldest — and
     record, for every merge's extra parent, the **corridor**: the lane its
     link line travels. A lane that is waiting for a sha never receives any
@@ -127,15 +127,18 @@ def _place(nodes: list[dict], branch_of: dict[str, str], trunk: str | None) -> l
     parallel to its neighbours instead of crossing them.
 
     Branch attribution (`branch_of`, may be empty) refines two guesses:
-    lane 0 is held for the trunk when any of its commits are shown, and a
-    commit with several lanes waiting for it lands on its own branch's
-    lane instead of simply the leftmost."""
+    the leftmost lanes are held for the pinned branches whose commits are
+    shown — one lane each, in `pin_order` — and a commit with several lanes
+    waiting for it lands on its own branch's lane instead of simply the
+    leftmost."""
     lanes: list[str | None] = []  # lane -> the sha it is waiting for
     fresh: list[int | None] = []  # reserved-at row, while no dot sits on the lane
     lane_branch: list[str | None] = []  # the branch whose line rides the lane
     pending: list[list] = []  # [child row dict, parent sha, corridor lane]
     rows: list[dict] = []
-    pinned = trunk is not None and any(branch_of.get(n["id"]) == trunk for n in nodes)
+    present = {branch_of.get(n["id"]) for n in nodes}
+    pin_lane = {b: i for i, b in enumerate(b for b in pin_order if b in present)}
+    reserved = len(pin_lane)
 
     def grow() -> int:
         lanes.append(None)
@@ -144,19 +147,21 @@ def _place(nodes: list[dict], branch_of: dict[str, str], trunk: str | None) -> l
         return len(lanes) - 1
 
     def free_lane(branch: str | None) -> int:
-        start = 1 if pinned and branch != trunk else 0
-        for i in range(start, len(lanes)):
+        for i in range(reserved, len(lanes)):
             if lanes[i] is None:
                 return i
-        while len(lanes) < start:
-            grow()  # keep lane 0 held for the trunk
+        while len(lanes) < reserved:
+            grow()  # keep the reserved lanes held for the pinned branches
         return grow()
 
     def corridor_lane(after: int) -> int:
         """A lane for a new parent link: right beside the child when the
-        shift moves nothing already drawn, else the leftmost free lane
-        beyond it, else the far right."""
-        pos = after + 1
+        shift moves nothing already drawn (never inside the reserved
+        columns), else the leftmost free lane beyond it, else the far
+        right."""
+        pos = max(after + 1, reserved)
+        while len(lanes) < pos:
+            grow()  # an insert beyond the end would clamp and skew the index
 
         def clean(i: int) -> bool:
             # shifting lane i to column i+1 must not put its pending
@@ -183,13 +188,15 @@ def _place(nodes: list[dict], branch_of: dict[str, str], trunk: str | None) -> l
     for row, node in enumerate(nodes):
         branch = branch_of.get(node["id"])
         waiting = [i for i, expected in enumerate(lanes) if expected == node["id"]]
-        if pinned and branch == trunk and (not lanes or lanes[0] is None or 0 in waiting):
-            # the trunk lives in lane 0 — claim it whenever it is open,
-            # even if branch lines were waiting for this commit elsewhere
-            # (they fold into the dot here, like any convergence)
-            if not lanes:
+        pin = pin_lane.get(branch)
+        if pin is not None:
+            while len(lanes) <= pin:
                 grow()
-            lane = 0
+        if pin is not None and (lanes[pin] is None or pin in waiting):
+            # a pinned branch lives on its reserved lane — claim it whenever
+            # it is open, even if branch lines were waiting for this commit
+            # elsewhere (they fold into the dot here, like any convergence)
+            lane = pin
         elif waiting:
             # of the lanes expecting this commit, its own branch's line
             # gets the dot; the others fold into it
@@ -253,6 +260,7 @@ def _edges(rows: list[dict], trunk: str | None = None) -> list[dict]:
                         "color": _branch_color(row["branch"], trunk, row["lane"]),
                         "lanes": [row["lane"]],
                         "stub": True,
+                        "dimmed": row.get("dimmed", False),
                     }
                 )
                 continue
@@ -289,6 +297,7 @@ def _edges(rows: list[dict], trunk: str | None = None) -> list[dict]:
                     "color": _branch_color(line, trunk, corridor),
                     "lanes": sorted({row["lane"], corridor, target["lane"]}),
                     "stub": False,
+                    "dimmed": row.get("dimmed", False),
                 }
             )
     return edges
@@ -300,17 +309,30 @@ def build(
     collapse: bool = True,
     branch_of: dict[str, str] | None = None,
     trunk: str | None = None,
+    pinned: list[str] | None = None,
+    dimmed: set[str] | None = None,
 ) -> dict:
     """Lay out `commits` (newest first, parents after children). `tips` are the
     shas a ref points at — they are never folded away. `branch_of` (from
-    gitread.born_on) attributes commits to branches: the trunk keeps lane 0
-    and the accent colour, every branch keeps a stable colour of its own."""
+    gitread.born_on) attributes commits to branches: the trunk keeps the
+    accent colour, every branch keeps a stable colour of its own. `pinned`
+    branches (exact names, in display order) hold the leftmost lanes and
+    their commits render as filled dots; without it the trunk alone holds
+    lane 0. `dimmed` shas (commits only hidden branches reach) grey out."""
+    pin_order = list(pinned) if pinned else ([trunk] if trunk else [])
     nodes = _collapse(commits, tips, MIN_COLLAPSE if collapse else len(commits) + 1)
-    rows = _place(nodes, branch_of or {}, trunk)
+    rows = _place(nodes, branch_of or {}, pin_order)
+    pin_set = set(pinned or [])
+    dimmed = dimmed or set()
     for row in rows:
         row["x"] = _x(row["lane"])
         row["y"] = _y(row["row"])
         row["color"] = _branch_color(row["branch"], trunk, row["lane"])
+        row["pinned"] = row["branch"] in pin_set
+        if row["kind"] == "gap":
+            row["dimmed"] = row["first"]["sha"] in dimmed and row["last"]["sha"] in dimmed
+        else:
+            row["dimmed"] = row["id"] in dimmed
     edges = _edges(rows, trunk)
     # a corridor can be the rightmost lane while carrying no dots
     lanes_used = [row["lane"] for row in rows]

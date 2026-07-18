@@ -135,9 +135,16 @@ def create_repository(repos_dir: Path | str, repo_path: str, default_branch: str
 # ------------------------------------------------------------- browsing
 
 
-def _branch_tips(repo: pygit2.Repository) -> dict[str, pygit2.Commit]:
+def _in_folders(name: str, entries) -> bool:
+    """Does `name` match an entry — the branch itself or anything under it?"""
+    return any(name == e or name.startswith(e + "/") for e in entries)
+
+
+def _branch_tips(repo: pygit2.Repository, hidden=()) -> dict[str, pygit2.Commit]:
     tips = {}
     for name in repo.branches.local:
+        if _in_folders(name, hidden):
+            continue
         try:
             tips[name] = repo.branches.local[name].peel(pygit2.Commit)
         except pygit2.GitError:
@@ -153,8 +160,23 @@ def head_branch(repo: pygit2.Repository) -> str | None:
     return None
 
 
-def branches(repo: pygit2.Repository) -> list[dict]:
-    """Branch tips, newest commit first."""
+def branches(repo: pygit2.Repository, pinned=(), hidden=()) -> list[dict]:
+    """All branch tips for display, flagged and ordered — nothing filtered.
+
+    A pinned/hidden entry matches the branch of that exact name or any
+    branch under that folder ("releases" pins releases/v1). Pinned branches
+    lead the list in their configured order; the rest are grouped by branch
+    folder alphabetically, branches within a folder by name, hidden ones
+    last. Each dict carries `pinned`/`hidden` flags; the caller decides
+    what a hidden branch means."""
+    pinned = list(pinned)
+
+    def rank(name: str) -> int:
+        for i, entry in enumerate(pinned):
+            if name == entry or name.startswith(entry + "/"):
+                return i
+        return len(pinned)
+
     result = []
     for name, commit in _branch_tips(repo).items():
         result.append(
@@ -164,10 +186,33 @@ def branches(repo: pygit2.Repository) -> list[dict]:
                 "short": str(commit.short_id),
                 "date": _commit_date(commit),
                 "subject": commit.message.splitlines()[0] if commit.message else "",
+                "pinned": rank(name) < len(pinned),
+                "hidden": _in_folders(name, hidden),
             }
         )
-    result.sort(key=lambda b: b["date"], reverse=True)
+    result.sort(
+        key=lambda b: (
+            rank(b["name"]),
+            b["hidden"],
+            b["name"].split("/")[:-1],
+            b["name"].split("/")[-1],
+        )
+    )
     return result
+
+
+def reachable(commits: list[dict], tips: set[str]) -> set[str]:
+    """Shas reachable from `tips` following parent links within `commits`."""
+    by_sha = {c["sha"]: c for c in commits}
+    seen: set[str] = set()
+    stack = [sha for sha in tips if sha in by_sha]
+    while stack:
+        sha = stack.pop()
+        if sha in seen:
+            continue
+        seen.add(sha)
+        stack.extend(p for p in by_sha[sha]["parents"] if p in by_sha)
+    return seen
 
 
 def _commit_dict(commit: pygit2.Commit) -> dict:
@@ -181,10 +226,10 @@ def _commit_dict(commit: pygit2.Commit) -> dict:
     }
 
 
-def commits(repo: pygit2.Repository, limit: int = 400) -> list[dict]:
-    """Commits reachable from any branch, newest first, children before
-    parents — the ordering the graph layout's single forward pass needs."""
-    tips = list(_branch_tips(repo).values())
+def commits(repo: pygit2.Repository, limit: int = 400, hidden=()) -> list[dict]:
+    """Commits reachable from any (non-hidden) branch, newest first, children
+    before parents — the ordering the graph layout's single forward pass needs."""
+    tips = list(_branch_tips(repo, hidden).values())
     if not tips:
         return []
     walker = repo.walk(tips[0].id, SortMode.TOPOLOGICAL | SortMode.TIME)
@@ -198,7 +243,9 @@ def commits(repo: pygit2.Repository, limit: int = 400) -> list[dict]:
     return result
 
 
-def born_on(repo: pygit2.Repository, commits: list[dict], default: str | None) -> dict[str, str]:
+def born_on(
+    repo: pygit2.Repository, commits: list[dict], default: str | None, hidden=()
+) -> dict[str, str]:
     """Which branch each shown commit belongs to, best-effort.
 
     Git erases "made on branch X" at commit time; two signals recover most
@@ -214,7 +261,7 @@ def born_on(repo: pygit2.Repository, commits: list[dict], default: str | None) -
        resolve to the inner branch, whose tip sits closest.
     """
     shown = {c["sha"]: c for c in commits}
-    tips = _branch_tips(repo)
+    tips = _branch_tips(repo, hidden)
     by: dict[str, str] = {}
 
     def first_parents(sha: str):

@@ -294,3 +294,65 @@ def test_branch_colors_are_stable_and_trunk_wears_the_accent():
     # no attribution -> lane colors, exactly as before
     rows = graph.build(commits, tips={"s", "m"})["rows"]
     assert [row["color"] for row in rows] == [graph._color(row["lane"]) for row in rows]
+
+
+def test_pinned_branches_hold_the_left_lanes_in_config_order():
+    commits = [
+        commit("w", "base"),  # a work branch tip, newest
+        commit("i", "base"),  # integration tip
+        commit("m", "base"),  # main tip
+        commit("base"),
+    ]
+    branch_of = {"w": "work/w", "i": "integration", "m": "main", "base": "main"}
+    laid_out = graph.build(
+        commits,
+        tips={"w", "i", "m"},
+        branch_of=branch_of,
+        trunk="main",
+        pinned=["main", "integration"],
+    )
+    at = {row["id"]: row for row in laid_out["rows"]}
+    assert at["m"]["lane"] == 0 and at["base"]["lane"] == 0
+    assert at["i"]["lane"] == 1
+    assert at["w"]["lane"] == 2  # non-pinned branches start beyond the reserved lanes
+    assert at["m"]["pinned"] and at["i"]["pinned"] and at["base"]["pinned"]
+    assert not at["w"]["pinned"]
+
+
+def test_dimmed_shas_grey_their_rows_and_edges():
+    commits = [
+        commit("a", "c"),
+        commit("b", "c"),
+        commit("c"),
+    ]
+    laid_out = graph.build(commits, tips={"a", "b"}, dimmed={"b"})
+    at = {row["id"]: row for row in laid_out["rows"]}
+    assert at["b"]["dimmed"]
+    assert not at["a"]["dimmed"] and not at["c"]["dimmed"]
+    assert [edge["dimmed"] for edge in laid_out["edges"]].count(True) == 1  # b→c only
+
+
+def test_a_merge_corridor_beyond_the_reserved_lanes():
+    """Regression: with several pinned branches reserving lanes, a merge at
+    the very top needs a corridor before the lane list has grown to the
+    reserved width — the corridor must land on a real lane, not a clamped
+    insert's phantom index."""
+    commits = [
+        commit("m", "a", "s"),  # merge on the trunk, newest row
+        commit("t2", "a"),
+        commit("t3", "a"),
+        commit("s", "a"),
+        commit("a"),
+    ]
+    branch_of = {"m": "main", "a": "main", "t2": "two", "t3": "three", "s": "side"}
+    laid_out = graph.build(
+        commits,
+        tips={"m", "t2", "t3", "s"},
+        branch_of=branch_of,
+        trunk="main",
+        pinned=["main", "two", "three"],
+    )
+    at = {row["id"]: row for row in laid_out["rows"]}
+    assert at["m"]["lane"] == 0 and at["a"]["lane"] == 0
+    assert at["t2"]["lane"] == 1 and at["t3"]["lane"] == 2
+    assert at["s"]["lane"] >= 3  # the side line stays out of the reserved columns
