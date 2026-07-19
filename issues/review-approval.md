@@ -12,11 +12,13 @@ The `.review` format spec ([`../docs/spec/dot-review-format.md`](../docs/spec/do
 
 ## Proposed iteration
 
-**Tree-first storage.** The submitted, shared form of a review is an in-tree `.review` file in a review commit under `reviews/…`, following the on-tree convention the format spec already sketches. The notes ref demotes to local drafting state — WIP comments, read-tracking — that never has to transport; submitting is what turns the draft into a review commit. This is exactly the split the MR design already assumes; the format spec's *Storage* and *Multi-reviewer merge* sections get rewritten to match. The format itself barely changes: the deterministic skeleton and append-only events that made `cat_sort_uniq` work are the same properties that let concurrent in-tree review files merge cleanly.
+**Tree-first storage.** The submitted, shared form of a review is an in-tree `.review` file in a review commit under `reviews/…`, following the on-tree convention the format spec already sketches. The notes ref demotes to local drafting state — WIP comments, read-tracking — that never has to transport; submitting is what turns the draft into a review commit on a `reviews/…` branch, carrying the file under `reviews/` in the tree, and merging that branch into the integration branch publishes the review into the history the gate inspects. This is exactly the split the MR design already assumes; the format spec's *Storage* and *Multi-reviewer merge* sections get rewritten to match. The format itself barely changes: the deterministic skeleton and append-only events that made `cat_sort_uniq` work are the same properties that let concurrent in-tree review files merge cleanly.
 
-**A diff-range object section.** The tool spec scaffolds a `# Diff <base>..<tip> @ git diff <base>..<tip>` section that the format spec never defines — its object sections are Blob, Tree, Commit, and Merge-Commit only. An MR review covers a branch delta, and the merge commit that would carry it does not exist until integration, so the format gains a fifth object shape: a diff-range section naming both endpoint SHAs in the heading, with the same per-file `## File …` lifecycle subsections as `# Commit`. This closes the gap.
+**Every merge onto the integration branch is reviewed.** The integration branch is what later lands on `main`, so its merge commits are the review surface: an MR's `/merge` arrives as a merge onto integration, and the review anchors to that `# Merge-Commit` section with its per-parent diff subsections — the branch delta exactly as it landed. Approval needs no separate range object; whether the tool spec's scaffolded `# Diff <base>..<tip>` section still has a place anywhere is Q1.
 
-**Approval is a verdict in a submitted review.** `- Verdict-reached-by: <Name> <<email>>; Approved` inside a `.review` whose object section names the covered SHAs. Approval covers exactly those objects — the MR design's "approvals pin a SHA" falls out of the format's zero-implicit-scope goal rather than needing its own rule. New author commits after the covered tip void the approval; conversation-only review commits and clean target-update merges do not (recognition shared with the MR design's O1/O3). For the `review-gate`, the covered object is always the MR's `/merge` commit itself — what lands is what was judged, and a redone integrator merge asks for a fresh approval. Diff-range and tip-covering reviews carry the conversation, not the gate.
+**Approval is a verdict in a submitted review.** `- Verdict-reached-by: <Name> <<email>>; Approved` inside a `.review` whose object section names the covered SHAs. Approval covers exactly those objects — the MR design's "approvals pin a SHA" falls out of the format's zero-implicit-scope goal rather than needing its own rule. New author commits after the covered tip void the approval; conversation-only review commits and clean target-update merges do not (recognition shared with the MR design's O1/O3). For the `review-gate`, the covered object is always a merge commit itself — what lands is what was judged, and a redone integrator merge asks for a fresh approval. Other reviews carry the conversation, not the gate.
+
+**Integration lands on `main` only clean.** The gate for the mainline merge checks every merge on the integration branch since it forked: each carries a submitted approving review, and every finding those reviews raised is resolved. Resolution is itself validated over further merges into the integration branch — fix merges and review updates — the MR design's fix-forward task queue in practice.
 
 **Concurrent reviews merge as appends.** dot-review is append-only: an event line is self-contained and idempotent under duplication, so two reviewers' submissions to the same `.review` path merge with git's ordinary machinery and never need manual resolution. `reviews/…` carries a `.gitattributes` `merge=union` entry as the baseline; renderers renormalize on parse by re-emitting the deterministic skeleton. The remaining detail for the format spec's merge section: an appended line landing under a neighbor's heading when both sides extend adjacent subsections. This ports the properties that made `cat_sort_uniq` work from notes to the tree; the `reviews/…` layout itself stays with the MR design's O6.
 
@@ -34,25 +36,21 @@ The pattern library describes review twice, and the two disagree with each other
 
 **One approval signal.** The `Verdict-reached-by:` event in a submitted review is the authoritative approval — the gate parses exactly one signal. The pattern's empty verdict commits demote to optional greppable convenience or leave `merge-reviews.md`; keeping both authoritative would be two sources of truth, one always stale.
 
-**The approval object can be the actual merge.** Merge Reviews insists the review targets the merge commit that lands, not a branch diff that may differ. The MR design's `/merge` ref makes that possible before `main` moves: the integrator's merge exists as an object ahead of the protected push. The diff-range section (Q1) then serves incremental and pre-merge review; the approving review covers the `/merge` commit, as decided above.
+**The approval object can be the actual merge.** Merge Reviews insists the review targets the merge commit that lands, not a branch diff that may differ. The MR design's `/merge` ref makes that possible before `main` moves: the integrator's merge exists as an object ahead of the protected push. The approving review covers the merge commit, as decided above.
 
-**The shipped CLI redirects before it lands.** `work/feature/review-cli` implements the notes-first model this issue demotes, and is unmerged — cheaper to redirect now than to rework after landing. Its parser, scaffold and TUI carry over unchanged; its notes persistence becomes the draft layer (Q4 answered in practice — the autosave already is a draft), and `gitflower review submit` is added as the tree-first path. It also ships a Textual TUI from Debian `python3-textual`, which overtakes the no-TUI-commitment consideration below; the rationale stands for not *requiring* a TUI, but the superseded tool spec should describe the one that exists.
+**The shipped CLI redirects before it lands.** `work/feature/review-cli` implements the notes-first model this issue demotes, and is unmerged — cheaper to redirect now than to rework after landing. Its parser, scaffold and TUI carry over unchanged; its notes persistence becomes the local draft layer — the autosave already is one — and `gitflower review submit` is added as the tree-first path. It also ships a Textual TUI from Debian `python3-textual`, which overtakes the no-TUI-commitment consideration below; the rationale stands for not *requiring* a TUI, but the superseded tool spec should describe the one that exists.
 
 **Pattern-side edits.** cute-devops changes this issue implies, recorded here so the two repos move together: the verdict location in `merge-reviews.md`, the storage description in `continuous-review.md`, and the `review/` vs `reviews/` branch-prefix inconsistency between `merge-reviews.md` and the pure-git-workflows skill.
 
 ## Open questions
 
-### Q1 — Exact shape of the diff-range section
+### Q1 — Whether the diff-range section survives, and its shape
 
-Heading syntax (`# Diff <base>..<tip> @ git diff <base>..<tip>`?), whether `...` three-dot merge-base form is also allowed, and how the range review composes with the per-commit reviews of `base..tip` — the tool spec's scaffold emits both, but the format's one-object-per-file rule means they are separate notes today; in one in-tree file they need a defined containment.
+With review centered on the integration branch's merge commits, approval never needs a range object — the `# Merge-Commit` per-parent diffs cover the landed delta. What may still want one: pre-merge conversation on an MR whose integrator merge does not exist yet, and the continuous track's since-last-review scaffold. If the section stays, its shape is open — heading syntax, whether the three-dot merge-base form is allowed or the scaffolder resolves it to explicit two-dot OIDs, and how it composes with per-commit sections in one file. It has to fit the merge-centric flow, not compete with it.
 
 ### Q3 — Who is an eligible approver
 
 Reuse the allowed-users mechanism from the existing branch-protection workflows, a dedicated approver list per protected branch, or any committer who is not the MR author? Whether author self-approval is refused by the gate or merely surfaced belongs here too.
-
-### Q4 — What remains of the local notes draft
-
-With submission going through the tree, the drafting state could stay in a local notes ref (as the MR design assumes) or simply be the uncommitted `.review` file in the working tree. The notes draft buys read-tracking persistence across machines but costs a second storage path in the Python tool.
 
 ### Q5 — Fate of `gitflower-review.md`
 
@@ -64,7 +62,8 @@ The tool spec's `review merge` subcommand and its `[Review]`-merge base-ref dete
 
 ## Tasks
 
-- [ ] Decide Q1 and add the diff-range object section to `dot-review-format.md`
+- [ ] Decide Q1 — whether the diff-range section survives the merge-centric flow, and its shape
+- [ ] Spec the `reviews/…` submission-branch flow and the all-findings-resolved gate for the integration→`main` merge
 - [ ] Rewrite the *Storage* and *Multi-reviewer merge* sections of `dot-review-format.md` tree-first, demoting notes to draft state
 - [ ] Spec the append-only merge semantics in `dot-review-format.md` (`merge=union` baseline, renormalizing renderers, the adjacent-subsection hazard)
 - [ ] Spec the `review-gate` workflow in the hook engine, including approval-staleness recognition shared with the MR design
