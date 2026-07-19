@@ -50,7 +50,7 @@ While it is possible to edit a `.review` file locally, a server side gate might 
 
 Unknown lines in the body should be displayed to the user in the relevant section at the relevant position as-is. Also the parser doesn't fail on them. This preserves backwards-compatibility for functionality that are just added.
 
-**Indentation marks containment.** One space indent marks content that belongs directly to a `## Subsection`. Two space indent marks content that belongs to the preceding reviewer-action list item. In both cases the block runs as long as the indented lines continue and ends as soon as the next line-block begins (another event, another heading, a `> ` quoted line, …). Unindented column-0 lines belong to the section/subsection structure itself.
+**Indentation marks containment, in steps of two spaces.** An indented block belongs to the nearest preceding element one step less indented: two spaces after a `## Subsection` heading is the subsection's own prose, two spaces after a reviewer-action list item is that event's body, and each further two spaces nests a child (an answer under its question, a reaction under a comment). The block runs as long as the indented lines continue and ends as soon as the next line-block begins (another event, another heading, a `> ` quoted line, …). Unindented column-0 lines belong to the section/subsection structure itself.
 
 Reviewer actions are list items with the shape `[<indent-spaces>]<bullet> <Keyword>-by: Name <email>[ @<RFC3339>][; <args>]`, optionally followed by a body indented two spaces below. The keyword is a kebab-cased past-tense verb (`Read-by:`, `Commented-by:`, `Verdict-reached-by:`, …) mirroring git's trailer convention (`Reviewed-By:`, `Signed-off-by:`). The bullet splits range markers (`*` for `Read-by:` / `Skipped-by:`) from everything else (`-`). The optional ` @<RFC3339>` slot carries an event timestamp when the author is opted in; the optional `; <args>` slot carries kind-specific parameters (an emoji, a verdict state, `begin` / `end`, …). Per-event semantics and multiplicity rules live under *Reviewer events*. Unknown `-by:` keys are preserved verbatim and displayed in place, same as any other unknown line.
 
@@ -147,19 +147,19 @@ The recipe is the source-of-truth pointer; a Note body is never rewritten — th
 
 `## Remark` H2 items hold free-form reviewer commentary that *doesn't need resolving* — the unstructured counterpart to Issues. Use one for each "thing I want to say but isn't a tracked work item": a short summary, pointers to related reviews, design context, anything that's reference rather than ask.
 
-Shape: H2 heading (no title, no `$ <recipe>` — Remarks are pure reviewer output), then one-space-indented paragraphs, then one or more `- Remarked-by: Name <email>` signature lines. Reviewer events (`- Commented-by:`, `- Reacted-by:`, `- Question-asked-by:`, `- Answer-given-by:`) can appear inside, same as in any other section.
+Shape: H2 heading (no title, no `$ <recipe>` — Remarks are pure reviewer output), then two-space-indented paragraphs, then one or more `- Remarked-by: Name <email>` signature lines. Reviewer events (`- Commented-by:`, `- Reacted-by:`, `- Question-asked-by:`, `- Answer-given-by:`) can appear inside, same as in any other section.
 
 ```
 ## Remark
- First time we're touching the legacy auth path in this branch.
- Worth flagging because the surrounding code has the "here be
- dragons" comment from the 2021 incident.
+  First time we're touching the legacy auth path in this branch.
+  Worth flagging because the surrounding code has the "here be
+  dragons" comment from the 2021 incident.
 - Remarked-by: Markus <markus@example.org>
 - Reacted-by: Alice <alice@example.com>; 👍
 
 ## Remark
- Tested manually with the staging account; CI covers the happy
- path, edge cases are in #ops-followup.
+  Tested manually with the staging account; CI covers the happy
+  path, edge cases are in #ops-followup.
 - Remarked-by: Markus <markus@example.org>
 ```
 
@@ -173,16 +173,16 @@ No resolve workflow — remarks are reference, not work. If a remark turns into 
 
 `## Issue <title>` H2 items hold free-form issues about the change as a whole — code-style nits that span files, naming conventions, follow-up work that should land but not block this MR, anything that isn't tied to a specific line, file, commit, or diff.
 
-Shape: H2 heading with title, one-space-indented description block, then one or more `- Issued-by: Name <email>` **signature lines**, then any reviewer events (comments, reactions, questions, answers).
+Shape: H2 heading with title, two-space-indented description block, then one or more `- Issued-by: Name <email>` **signature lines**, then any reviewer events (comments, reactions, questions, answers).
 
 ```
 ## Issue name uses snake_case but project uses camelCase
- Several added identifiers (`parse_lines`, `total_count`) break
- the existing convention. Worth a sweep before merge.
+  Several added identifiers (`parse_lines`, `total_count`) break
+  the existing convention. Worth a sweep before merge.
 
- Multiple description paragraphs work — each line stays at one
- space of indent so it parses as the issue's body, not as a
- new top-level paragraph that would close the section.
+  Multiple description paragraphs work — each line stays at two
+  spaces of indent so it parses as the issue's body, not as a
+  new top-level paragraph that would close the section.
 - Issued-by: Markus <markus@example.org>
 - Issued-by: Alice <alice@example.com>
 
@@ -200,7 +200,7 @@ Un-signing means deleting your own signature line; the issue stays as long as at
 
 ```
 ## Issue name uses snake_case but project uses camelCase
- Several added identifiers break the existing convention.
+  Several added identifiers break the existing convention.
 - Issued-by: Markus <markus@example.org>
 
 - Commented-by: Alice <alice@example.com>
