@@ -26,7 +26,7 @@ Every `.review` file starts with a header block of `Key: value` trailer lines, o
 ```
 dot-review-File-Version: 0
 dot-review-Intro: This file uses the .review format — a patch-quoting markdown-ish file format with a fixed chapter structure. Every heading is a review section, every `> ` line is verbatim git content,  every list item (`-` or `*`) is a reviewer reaction.
-dot-review-Docs-Link: https://cute-devops.patterns.how/apps/gitflower/docs/spec/dot-review-format
+dot-review-Docs-Link: https://gitflower.mkbrechtel.dev/docs/spec/dot-review-format
 ---
 # Review <Type> <short-sha> $ <git command>
 …
