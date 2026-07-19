@@ -5,7 +5,7 @@
 
 # `gitflower review` — TUI and CLI for `.review` files
 
-`gitflower review` is gitflower's front-end for the `.review` format. It scaffolds a review on the current branch, runs a bubbletea TUI for interactive reading and commenting, and persists the result to the shared `refs/notes/reviews` git notes ref (keyed by the reviewed commit's SHA, with an optional on-disk mirror). The on-disk format is documented separately in [`dot-review-format.md`](./dot-review-format.md); this file specifies the tool — invocation, flags, TUI behaviour, persistence, and how the tool's output maps to the format spec. Where the two disagree, the format spec is authoritative and the tool gets rewritten to match.
+`gitflower review` is gitflower's front-end for the `.review` format. It scaffolds a review on the current branch, runs a bubbletea TUI for interactive reading and commenting, and persists the draft to the local `refs/notes/reviews` git notes ref (keyed by the reviewed commit's SHA, with an optional on-disk mirror); submission lands the review in the tree under `reviews/` per the format spec's *Storage*. The on-disk format is documented separately in [`dot-review-format.md`](./dot-review-format.md); this file specifies the tool — invocation, flags, TUI behaviour, persistence, and how the tool's output maps to the format spec. Where the two disagree, the format spec is authoritative and the tool gets rewritten to match.
 
 ## Invocation
 
@@ -31,7 +31,7 @@ With `--no-tui` the scaffold is written and the process exits with a "where your
 
 ### `gitflower review merge` (build tag `with_review_merge`)
 
-Attaches the review to the branch history with a merge commit. The merge commit's subject is prefixed `[Review]`, and its body carries a verdict-count summary, a literal `git show <notes-sha>` recipe pointing at the notes-commit that holds the `.review` body, and the `Verdict-reached-by:` trailers copied verbatim. Optional `--include-review-in-tree` lets the entire `.review` body land in the tree at `reviews/<branch>-<tip-short>.review` instead of staying notes-only.
+Attaches the review to the branch history with a merge commit. The merge commit's subject is prefixed `[Review]`, and its body carries a verdict-count summary, a literal `git show <notes-sha>` recipe pointing at the notes-commit that holds the `.review` body, and the `Verdict-reached-by:` trailers copied verbatim. The merge carries the `.review` body into the tree at its `reviews/…` path — submission through the tree is the point of the merge; the notes draft stays local.
 
 The exact mechanism by which the merge brings the notes-ref content in as the merge's second parent is unsettled — the spec at this point only sketches the commit-message shape, not the graph shape. See *Considerations*: §*Attaching reviews to history* in [`dot-review-format.md`](./dot-review-format.md) for the open candidates (orphan archive commit, `-s ours` of the notes-ref tip with a filter step, content-addressed second parent, tree-blob-only). The implementation currently uses the orphan-archive shape; that may change before format v1.
 
@@ -114,7 +114,7 @@ A reviewer who has just finished reading a section is past its last `> ` line (t
 
 ## Persistence
 
-**Notes ref.** Default `refs/notes/reviews` (single shared ref, keyed by reviewed commit SHA). The notes ref is the source of truth — reads prefer it over any on-disk mirror. The "find the last review" question is answered by walking commits backwards from HEAD for the most recent `[Review]` merge, not by inspecting the notes ref directly.
+**Notes ref.** Default `refs/notes/reviews` (the local draft layer, keyed by reviewed commit SHA). While a review is being written the note is the working copy — reads prefer it over any on-disk mirror; the submitted, shared form is the in-tree file per the format spec's *Storage*. The "find the last review" question is answered by walking commits backwards from HEAD for the most recent `[Review]` merge, not by inspecting the notes ref directly.
 
 **File mirror (`-o`).** Optional. The mirror is rewritten on every save; reads still come from the note. Useful for diffing two reviews on disk or for tooling that doesn't speak git notes.
 
@@ -128,15 +128,9 @@ The `refs/notes/reviews` ref is shared territory, not gitflower-exclusive. Any n
 
 The `.review` parser ignores notes that don't begin with `dot-review-File-Version:`. The writer never overwrites them on save.
 
-### Planned `review-gate` hook
+### Planned `review-gate` workflow
 
-A future `gitflower review-gate` hook will block merges unless a commit has been reviewed. It scans a commit's notes-ref body for approval signals in priority order:
-
-1. **`.review` format** — a parseable body with at least one `- Verdict-reached-by: …; Approved` counts as approved.
-2. **Kernel-style trailers** — any line matching `^(Reviewed-By|Acked-By|Signed-off-by): <Name> <<email>>` counts as a sign-off.
-3. **No recognised signal** — the body exists but doesn't approve.
-
-The hook itself is a future feature; this spec only declares that the notes ref is shared territory and the gate will treat both formats as first-class.
+The `review-gate` branch-protection workflow blocks the mainline push unless the integration branch's history carries the required reviews: every merge onto the integration branch has a submitted in-tree `.review` covering that merge commit with at least one `- Verdict-reached-by: …; Approved` from an eligible approver, and no unresolved findings remain — resolution is validated over further merges into the integration branch. Kernel-style trailers (`^(Reviewed-By|Acked-By|Signed-off-by): <Name> <<email>>`) in commit messages stay recognised as a compatibility sign-off signal. The gate reads review commits, never notes — drafts gate nothing.
 
 ## References
 

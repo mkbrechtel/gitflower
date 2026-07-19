@@ -64,12 +64,12 @@ The tool spec's `review merge` subcommand and its `[Review]`-merge base-ref dete
 
 - [ ] Decide Q1 — whether the diff-range section survives the merge-centric flow, and its shape
 - [ ] Spec the `reviews/…` submission-branch flow and the all-findings-resolved gate for the integration→`main` merge
-- [ ] Rewrite the *Storage* and *Multi-reviewer merge* sections of `dot-review-format.md` tree-first, demoting notes to draft state
+- [x] Rewrite the *Storage* and *Multi-reviewer merge* sections of `dot-review-format.md` tree-first, demoting notes to draft state
 - [ ] Spec the append-only merge semantics in `dot-review-format.md` (`merge=union` baseline, renormalizing renderers, the adjacent-subsection hazard)
 - [ ] Spec the `review-gate` workflow in the hook engine, including approval-staleness recognition shared with the MR design
 - [ ] Supersede or rewrite `gitflower-review.md` for the click CLI + editor flow (Q5)
 - [ ] `.review` rendering in the web UI (read-only; joins the MR detail view, MR design O7)
-- [ ] Editorial pass over `dot-review-format.md` (typos: "gitfßlower", "Loosley", "determin", "hierachy")
+- [x] Editorial pass over `dot-review-format.md` (typos: "gitfßlower", "Loosley", "determin", "hierachy")
 - [ ] Redirect `work/feature/review-cli` tree-first: notes persistence demotes to draft, `gitflower review submit` added
 - [ ] File the cute-devops pattern edits (verdict location in `merge-reviews.md`, storage in `continuous-review.md`, review-branch prefix)
 

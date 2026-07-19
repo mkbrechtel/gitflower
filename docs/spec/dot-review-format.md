@@ -5,9 +5,9 @@
 
 # `.review` *(dot-review)* — File format for git based code reviews!
 
-A single-file format for one code review. Loosley based on Markdown, with a fixed chapter structure: H1 = section (commit/diff/tree), H2 = sub-section (content/diff), list items = reviewer events. Patch / file content is `> `-quoted verbatim from git so the review reads like an annotated diff.
+A single-file format for one code review. Loosely based on Markdown, with a fixed chapter structure: H1 = section (commit/diff/tree), H2 = sub-section (content/diff), list items = reviewer events. Patch / file content is `> `-quoted verbatim from git so the review reads like an annotated diff.
 
-This file specifies the on-disk format. The reference reader/writer is gitfßlower; its commands, TUI, and notes-ref integration are documented separately in [`./gitflower-review.md`](./gitflower-review.md).
+This file specifies the on-disk format. The reference reader/writer is gitflower; its commands, TUI, and notes-ref integration are documented separately in [`./gitflower-review.md`](./gitflower-review.md).
 
 ## Goal
 
@@ -44,7 +44,7 @@ The closing `---` must be on its own line, followed by the line where the body s
 
 ## Generic body format rules
 
-The `.review` format is strictly line oriented where the characters at the beginning of the lines determin the purpose of everything that is in that line. Line-order matters and establishes reference and hierachy by indentation.
+The `.review` format is strictly line oriented where the characters at the beginning of the lines determine the purpose of everything that is in that line. Line-order matters and establishes reference and hierarchy by indentation.
 
 While it is possible to edit a `.review` file locally, a server side gate might ensure edits as append-only insertions in order to merge multiple actions by multiple reviewers nicely.
 
@@ -76,7 +76,7 @@ The object section is one of:
 
 **`# Merge-Commit <sha> @ git show -m <sha>`** — a merge commit with **N explicit `## Diff from parent <N> @ git show -m -<N> <sha>` subsections, one per parent, including empty ones**. Each parent subsection carries the same per-file structure as a `# Commit`. The presence of all N subsections — even empties — makes the merge's structural shape reviewable.
 
-Each `.review` covers exactly one object. Multi-artefact reviews (a feature branch's diff, a tree-browsing session) compose at storage time: each artefact gets its own `.review` note, keyed by its SHA in `refs/notes/reviews`. The unifying principle is **every review anchors to a git artefact addressed by its SHA** — no review action lives outside that lattice.
+Each `.review` covers exactly one object. Multi-artefact reviews (a feature branch's diff, a tree-browsing session) compose at storage time: each artefact gets its own `.review`, keyed by its SHA — in the tree under `reviews/` once submitted, in the local `refs/notes/reviews` draft while being written. The unifying principle is **every review anchors to a git artefact addressed by its SHA** — no review action lives outside that lattice.
 
 ## `# Review` section
 
@@ -289,7 +289,7 @@ A per-tree review. Heading carries the tree SHA and the `git ls-tree` recipe. Bo
 > 040000 tree f0a1b2c3    "docs"
 ```
 
-Per-tree reviews comment on the directory's shape itself (missing file? wrong permissions? unexpected subtree?) rather than on any specific file's content — those live in the per-blob reviews of the listed blob SHAs, fetched separately by their own notes.
+Per-tree reviews comment on the directory's shape itself (missing file? wrong permissions? unexpected subtree?) rather than on any specific file's content — those live in the per-blob reviews of the listed blob SHAs, fetched separately by their own SHAs.
 
 ## `# Commit <sha> @ git show <sha>` section
 
@@ -398,7 +398,7 @@ The empty-diff-from-parent-N subsection still appears as a reviewable section �
 
 Per-file subsections under a parent-diff use H3 (`### File …`) since H2 is already taken by the parent-diff itself. Body shapes follow the same lifecycle family as in `# Commit`.
 
-Merge-commits are conventionally the integration anchor for an MR-style workflow (subject prefixed `[Merge-Request]`, optional `Merge-Request:` trailer). The review of the merge commit is the review of the MR; per-feature-commit reviews live in their own `# Commit` notes and dedup naturally.
+Merge-commits are the review surface of the MR workflow: every merge onto the integration branch is reviewed, and the review of the integrator's merge commit is the review of the MR. Per-feature-commit reviews live in their own `# Commit` reviews and dedup naturally.
 
 ## Reviewer events
 
@@ -593,7 +593,11 @@ user-content body.
 
 ## Storage
 
-Default storage is a single git notes ref, `refs/notes/reviews`, with each note keyed by **any reviewed git object SHA** — commit, tree, or blob. The note body is a `.review` scoped to that object: `git notes --ref=reviews show <any-sha>` is the universal lookup, regardless of whether `<any-sha>` names a commit, a tree, or a blob. The same shape works at every layer: a per-blob review dedups across every commit that touches that blob content; a per-commit review dedups across every branch that contains the commit; a per-merge-commit review captures only what's new at the merge layer.
+The submitted, shared form of a review is an **in-tree `.review` file** under `reviews/`, path `reviews/<object-kind>-<short-sha>.review` (e.g. `reviews/merge-commit-51c2c71.review`), committed on a `reviews/…` branch. Merging that branch into the integration branch publishes the review into the history that gates and tools read. Each file is a `.review` scoped to one object — commit, merge-commit, tree, or blob — keyed by the SHA in its path and headings.
+
+Local drafting state — WIP comments, read tracking — lives in a git notes ref, `refs/notes/reviews`, keyed by the reviewed object SHA: `git notes --ref=reviews show <sha>` is the lookup while a review is being written. Drafts never transport; submitting is what turns the draft into a review commit.
+
+The same per-object shape works at every layer: a per-blob review dedups across every commit that touches that blob content; a per-commit review dedups across every branch that contains the commit; a per-merge-commit review captures only what's new at the merge layer.
 
 ## Multi-reviewer merge
 
@@ -603,17 +607,15 @@ The format is **mergeable across reviewers without conflict resolution**, becaus
 
 **Reviewer events are append-only list items at fixed anchors.** A reviewer adds events; nothing mutates another reviewer's events. Merging two reviews of the same object is line-union over the deterministic skeleton.
 
-Together these properties match what git's built-in **`git notes merge --strategy=cat_sort_uniq`** strategy is designed for: sort the lines of both note bodies, dedup, write the union back. The strategy was built for line-oriented append-only content; the `.review` format fits exactly.
+Together these properties let concurrent submissions merge with git's **ordinary merge machinery**: the `reviews/` directory carries a `.gitattributes` entry `reviews/* merge=union`, and a union merge of two reviews of the same object is a line-union over the deterministic skeleton — no manual conflict resolution, ever. Tools renormalize after a union merge by parsing and re-emitting the skeleton; renormalization is required because a union can leave a line appended at a subsection boundary sitting under the neighboring heading, and re-rendering re-homes events by their anchors and the ordering rule below.
 
-Conventional layout for concurrent multi-reviewer work: each reviewer writes to their own ref (`refs/notes/reviews-<name>`) and a downstream consolidator runs `git notes merge --strategy=cat_sort_uniq refs/notes/reviews-<name>` per reviewer into the shared `refs/notes/reviews`. Per-reviewer refs avoid write races; the shared ref is the read surface.
-
-**Event ordering at the same anchor.** When two events anchor to the same line, they sort by `@<RFC3339>` timestamp (if both have one) with reviewer email as the stable tiebreaker. Events without timestamps sort after timestamped events at the same anchor, then by reviewer email. This ordering rule is what makes the cat_sort_uniq merge produce a stable result regardless of which reviewer's ref the consolidator processes first.
+**Event ordering at the same anchor.** When two events anchor to the same line, they sort by `@<RFC3339>` timestamp (if both have one) with reviewer email as the stable tiebreaker. Events without timestamps sort after timestamped events at the same anchor, then by reviewer email. This ordering rule is what makes renormalization after a union merge produce a stable result regardless of merge order.
 
 What stays non-deterministic and may need merge attention:
 
 - **Reviewer-added subsections** — extra `## Note` / `## Remark` / `## Issue` items under `# Review`. Merge = union by heading; duplicates collapse.
 - **Issue collisions** — two reviewers raising `## Issue X` with the same title. Kept as duplicates (the TUI surfaces them — see *gitflower-review.md*) unless a tool merges titles by similarity.
-- **Verdict-reached-by per (Name, email)** — "latest replaces" is the collision rule; cat_sort_uniq's dedup handles re-submissions naturally when timestamps are present, otherwise the consolidator picks the latest-emailed one.
+- **Verdict-reached-by per (Name, email)** — "latest replaces" is the collision rule; renormalization dedups re-submissions naturally when timestamps are present, otherwise the latest submission wins.
 
 # Considerations
 
@@ -625,16 +627,4 @@ Rationale, rejected paths, and open questions. Deletable as a whole once the spe
 
 ## Attaching reviews to history
 
-In the per-object model the question mostly dissolves: a review is *already* attached to its object by the notes-ref keying. A commit's review travels with the commit; a merge-commit's review travels with the merge. Trunk fast-forwarding to an MR's merge commit picks up the merge commit's review at the same time. No separate "review-landed" merge is needed — the merge commit IS its own review attachment.
-
-What remains conventional rather than format-specified: the **MR marker** in the merge commit's message (`[Merge-Request]` subject prefix or `Merge-Request:` trailer) so tools recognise integration commits awaiting review. The marker is workflow, not format — but the format-side guarantee is that the merge commit's `.review` note is found at the merge commit's SHA, full stop.
-
-## On-tree `.review` file
-
-A reviewer may want to commit a `.review` into a tree alongside the code — for archival, for tooling that doesn't speak git notes, or to ship a review as part of a release. Path convention: `reviews/<object-kind>-<short-sha>.review`, e.g. `reviews/commit-eb2d95b.review` or `reviews/blob-1a2b3c4.review`.
-
-Open: whether tree inclusion is purely a per-reviewer convention, a workflow gate (e.g., "open issues must materialise before merge"), or carries any spec-level shape requirements.
-
-## Per-reviewer notes refs
-
-The *Multi-reviewer merge* section sketches `refs/notes/reviews-<name>` per reviewer with cat_sort_uniq consolidation into the shared `refs/notes/reviews`. Open questions: who runs the consolidator (each reviewer, a CI bot, a server hook?), what `<name>` should be (git config user.email? a chosen handle?), and whether reviewers should write directly to the shared ref when they're not concerned about conflicts.
+Earlier drafts keyed all storage on notes refs, where attachment to the object was automatic but transport was not — notes need out-of-band fetching and consolidation. Tree-first, attachment is explicit: the review commit on its `reviews/…` branch merges into the integration branch and travels with the history from there. The anchor model is unchanged — the reviewed object is still addressed by SHA in the file's path and headings; only where the shared copy lives moved. The notes ref survives as the local draft layer, and the `cat_sort_uniq` consolidation machinery earlier drafts specified is deleted with the shared-notes role rather than ported.
