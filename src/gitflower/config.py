@@ -1,25 +1,46 @@
-"""gitflower configuration — everything is YAML.
+"""gitflower configuration.
 
-Two config files:
+Two configs, two homes:
 
-* **Per-repo** `.gitflower/config.yaml` — branch rules and protection policy,
-  consumed by the pre-push hook engine. Strict: unknown keys are an error, so
-  a typo fails the hook loudly instead of silently allowing a push.
+* **Per-repo** — `gitflower.*` in the bare repository's own git config,
+  consumed by the pre-receive hook and by the web UI. Strict: an unknown key
+  or an unknown workflow is an error, so a typo fails the push loudly instead
+  of silently allowing it.
 * **Global** `~/.config/gitflower/config.yaml` (or /etc/gitflower/config.yaml
-  for the system service) — repo hosting + web UI settings. Lenient: unknown
-  sections are ignored so the file can carry settings for other tools.
+  for the system service) — server settings only: where repos live, how deep
+  to scan, what address to listen on. Lenient: unknown sections are ignored so
+  the file can carry settings for other tools.
+
+Only the repository's *local* config is read — not the user's `~/.gitconfig`
+or the system one. Policy belongs to the repository, and a setting in an
+admin's home directory must never change what a push is allowed to do.
 """
 
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pygit2
 import yaml
 
-REPO_CONFIG_DIR = ".gitflower"
-REPO_CONFIG_NAME = "config.yaml"
-
 WORKFLOWS = ("protected", "issue-tracker", "release-manager")
+
+SECTION = "gitflower"
+BRANCH_PREFIX = "branch."
+
+# git lowercases section and key names but preserves subsection case, so the
+# keys arrive here folded while the branch pattern comes through verbatim.
+_RULE_KEYS = {
+    "workflow": "workflow",
+    "enabled": "enabled",
+    "allowdirectpush": "allow_direct_push",
+    "requirelinearhistory": "require_linear_history",
+}
+_PINNED_KEY = "pinnedbranch"
+_HIDDEN_KEY = "hiddenbranch"
+
+_TRUE = ("true", "yes", "on", "1")
+_FALSE = ("false", "no", "off", "0", "")
 
 
 class ConfigError(ValueError):
@@ -31,9 +52,14 @@ class ConfigError(ValueError):
 
 @dataclass
 class BranchRule:
+    """One `[gitflower "branch.<pattern>"]` section: which workflow the branch
+    routes to, and — for the `protected` workflow — what it is checked against."""
+
     pattern: str
     workflow: str
     enabled: bool = True
+    allow_direct_push: bool = False
+    require_linear_history: bool = False
 
     def __post_init__(self) -> None:
         if self.workflow not in WORKFLOWS:
@@ -43,88 +69,118 @@ class BranchRule:
 
 
 @dataclass
-class ProtectedBranch:
-    pattern: str
-    allow_direct_push: bool = False
-    require_linear_history: bool = False
-    allowed_push_users: list[str] = field(default_factory=list)
-    require_clean_working_tree: bool = False
-
-
-@dataclass
 class RepoConfig:
     branch_rules: list[BranchRule] = field(default_factory=list)
-    protected_branches: list[ProtectedBranch] = field(default_factory=list)
+    pinned_branches: list[str] = field(default_factory=list)
+    hidden_branches: list[str] = field(default_factory=list)
+
+
+DEFAULT_PINNED = ["main", "integration", "releases"]
+DEFAULT_HIDDEN = ["archive"]
 
 
 def default_repo_config() -> RepoConfig:
+    """What a repository with no `gitflower.*` keys is governed by."""
     return RepoConfig(
         branch_rules=[
-            BranchRule(pattern="main", workflow="protected"),
+            BranchRule(pattern="main", workflow="protected", require_linear_history=True),
             BranchRule(pattern="issues/*", workflow="issue-tracker"),
             BranchRule(pattern="releases/v*", workflow="release-manager"),
         ],
-        protected_branches=[
-            ProtectedBranch(pattern="main", require_linear_history=True),
-        ],
+        pinned_branches=list(DEFAULT_PINNED),
+        hidden_branches=list(DEFAULT_HIDDEN),
     )
 
 
-def _build(cls, data: dict, where: str):
-    if not isinstance(data, dict):
-        raise ConfigError(f"{where}: expected a mapping, got {type(data).__name__}")
-    fields = {f.name for f in cls.__dataclass_fields__.values()}
-    unknown = set(data) - fields
-    if unknown:
-        raise ConfigError(f"{where}: unknown keys: {', '.join(sorted(unknown))}")
-    return cls(**data)
+def _parse_bool(value: str, where: str) -> bool:
+    folded = (value or "").strip().lower()
+    if folded in _TRUE:
+        return True
+    if folded in _FALSE:
+        return False
+    raise ConfigError(f"{where}: expected a boolean, got '{value}'")
 
 
-def repo_config_path(repo_root: Path | str) -> Path:
-    return Path(repo_root) / REPO_CONFIG_DIR / REPO_CONFIG_NAME
+def git_dir(repo_path: Path | str) -> Path:
+    """The repository's git directory — itself when bare, `.git` otherwise."""
+    try:
+        repo = pygit2.Repository(str(repo_path))
+    except pygit2.GitError as exc:
+        raise ConfigError(f"{repo_path}: not a git repository") from exc
+    return Path(repo.path)
 
 
-def load_repo_config(repo_root: Path | str) -> RepoConfig:
-    """The repo's config; a missing file means the defaults (as in Go)."""
-    path = repo_config_path(repo_root)
-    if not path.exists():
+def local_config(repo_path: Path | str) -> pygit2.Config:
+    return pygit2.Config(str(git_dir(repo_path) / "config"))
+
+
+def load_repo_config(repo_path: Path | str) -> RepoConfig:
+    """The repository's gitflower settings; nothing set means the defaults."""
+    where = f"{repo_path}: git config"
+    rules: dict[str, dict] = {}
+    pinned: list[str] = []
+    hidden: list[str] = []
+
+    for entry in local_config(repo_path):
+        if not entry.name.startswith(SECTION + "."):
+            continue
+        rest = entry.name[len(SECTION) + 1 :]
+        if rest == _PINNED_KEY:
+            pinned.append(entry.value)
+            continue
+        if rest == _HIDDEN_KEY:
+            hidden.append(entry.value)
+            continue
+        if not rest.startswith(BRANCH_PREFIX):
+            raise ConfigError(f"{where}: unknown key '{entry.name}'")
+        pattern, dot, key = rest[len(BRANCH_PREFIX) :].rpartition(".")
+        if not dot or not pattern:
+            raise ConfigError(f"{where}: malformed key '{entry.name}'")
+        attr = _RULE_KEYS.get(key)
+        if attr is None:
+            raise ConfigError(f"{where}: unknown key '{entry.name}'")
+        rule = rules.setdefault(pattern, {})
+        if attr == "workflow":
+            rule[attr] = entry.value
+        else:
+            rule[attr] = _parse_bool(entry.value, f"{where}: {entry.name}")
+
+    if not rules and not pinned and not hidden:
         return default_repo_config()
-    data = yaml.safe_load(path.read_text()) or {}
-    if not isinstance(data, dict):
-        raise ConfigError(f"{path}: expected a mapping at the top level")
-    unknown = set(data) - {"branch_rules", "protected_branches"}
-    if unknown:
-        raise ConfigError(f"{path}: unknown keys: {', '.join(sorted(unknown))}")
+
+    branch_rules = []
+    for pattern, values in rules.items():
+        if "workflow" not in values:
+            raise ConfigError(
+                f"{where}: branch '{pattern}' has no workflow "
+                f"(set {SECTION}.{BRANCH_PREFIX}{pattern}.workflow)"
+            )
+        branch_rules.append(BranchRule(pattern=pattern, **values))
+
     return RepoConfig(
-        branch_rules=[
-            _build(BranchRule, rule, f"{path}: branch_rules[{i}]")
-            for i, rule in enumerate(data.get("branch_rules") or [])
-        ],
-        protected_branches=[
-            _build(ProtectedBranch, pb, f"{path}: protected_branches[{i}]")
-            for i, pb in enumerate(data.get("protected_branches") or [])
-        ],
+        branch_rules=branch_rules or default_repo_config().branch_rules,
+        pinned_branches=pinned or list(DEFAULT_PINNED),
+        hidden_branches=hidden or list(DEFAULT_HIDDEN),
     )
 
 
 def dump_repo_config(config: RepoConfig) -> str:
-    data = {
-        "branch_rules": [
-            {"pattern": r.pattern, "workflow": r.workflow, "enabled": r.enabled}
-            for r in config.branch_rules
-        ],
-        "protected_branches": [
-            {
-                "pattern": p.pattern,
-                "allow_direct_push": p.allow_direct_push,
-                "require_linear_history": p.require_linear_history,
-                "allowed_push_users": p.allowed_push_users,
-                "require_clean_working_tree": p.require_clean_working_tree,
-            }
-            for p in config.protected_branches
-        ],
-    }
-    return yaml.safe_dump(data, sort_keys=False)
+    """The config as git-config text — the shape `git config --edit` shows."""
+    lines = [f"[{SECTION}]"]
+    for name in config.pinned_branches:
+        lines.append(f"\tpinnedBranch = {name}")
+    for name in config.hidden_branches:
+        lines.append(f"\thiddenBranch = {name}")
+    for rule in config.branch_rules:
+        lines.append(f'[{SECTION} "{BRANCH_PREFIX}{rule.pattern}"]')
+        lines.append(f"\tworkflow = {rule.workflow}")
+        if not rule.enabled:
+            lines.append("\tenabled = false")
+        if rule.allow_direct_push:
+            lines.append("\tallowDirectPush = true")
+        if rule.require_linear_history:
+            lines.append("\trequireLinearHistory = true")
+    return "\n".join(lines) + "\n"
 
 
 # ----------------------------------------------------------------- global
@@ -140,13 +196,6 @@ class ReposConfig:
 @dataclass
 class WebConfig:
     address: str = ":8747"
-    # entries match a branch of that exact name or any branch under that
-    # folder — pinned ones lead the repo view's branch list in this order,
-    # hidden ones disappear from it (and from the commit graph)
-    pinned_branches: list[str] = field(
-        default_factory=lambda: ["main", "integration", "releases"]
-    )
-    hidden_branches: list[str] = field(default_factory=lambda: ["archive"])
 
 
 @dataclass

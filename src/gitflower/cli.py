@@ -7,7 +7,6 @@ list, web) that act on the configured repos directory.
 """
 
 import json
-import os
 import subprocess
 import sys
 from dataclasses import asdict
@@ -21,11 +20,31 @@ from gitflower.workflows import Context, RouteError, execute
 
 
 def _repo_root() -> Path:
-    """The repository the per-repo commands act on: cwd must hold a .git."""
+    """The repository the per-repo commands act on: cwd must be one."""
     cwd = Path.cwd()
-    if not (cwd / ".git").exists():
+    try:
+        cfg.git_dir(cwd)
+    except cfg.ConfigError:
         raise click.ClickException("not a git repository (or any parent up to mount point)")
     return cwd
+
+
+def _bare_repo_root() -> Path:
+    """As `_repo_root`, but refuses a working tree.
+
+    gitflower enforces policy in a server-side pre-receive hook, so the
+    settings and the hook both belong to the bare repository being pushed to.
+    Installing into a clone would produce a hook that never runs.
+    """
+    root = _repo_root()
+    import pygit2
+
+    if not pygit2.Repository(str(root)).is_bare:
+        raise click.ClickException(
+            "not a bare repository — gitflower policy is enforced server-side, "
+            "so run this in the bare repository that receives pushes"
+        )
+    return root
 
 
 @click.group()
@@ -56,24 +75,25 @@ def _global_config(ctx: click.Context) -> cfg.GlobalConfig:
 @main.command()
 def init() -> None:
     """Initialize gitflower in the current repository."""
-    root = _repo_root()
-    path = cfg.repo_config_path(root)
-    path.parent.mkdir(mode=0o755, exist_ok=True)
-    if not path.exists():
-        path.write_text(cfg.dump_repo_config(cfg.default_repo_config()))
+    root = _bare_repo_root()
+    try:
+        cfg.load_repo_config(root)
+    except cfg.ConfigError as exc:
+        raise click.ClickException(str(exc))
     click.echo("Gitflower initialized successfully!")
-    click.echo(f"Configuration file created at: {path}")
+    click.echo(f"Configuration lives in {cfg.git_dir(root) / 'config'} under [gitflower].")
+    click.echo("Nothing was written — the built-in defaults are already in effect.")
     click.echo()
     click.echo("Next steps:")
-    click.echo("  1. Review and customize the configuration: gitflower config show")
-    click.echo("  2. Install git hooks: gitflower install")
+    click.echo("  1. Review the effective configuration: gitflower config show")
+    click.echo("  2. Install the git hook: gitflower install")
 
 
 @main.command()
-@click.option("--force", is_flag=True, help="Overwrite a foreign pre-push hook.")
+@click.option("--force", is_flag=True, help="Overwrite a foreign pre-receive hook.")
 def install(force: bool) -> None:
-    """Install git hooks."""
-    root = _repo_root()
+    """Install the pre-receive hook."""
+    root = _bare_repo_root()
     try:
         cfg.load_repo_config(root)  # surface config errors before installing
         hooks.install(root, force=force)
@@ -95,18 +115,21 @@ def config_group() -> None:
 
 
 @config_group.command("show")
+@click.option("--global", "want_global", is_flag=True, help="Show the server config.")
 @click.pass_context
-def config_show(ctx: click.Context) -> None:
+def config_show(ctx: click.Context, want_global: bool) -> None:
     """Print the effective configuration."""
-    root = Path.cwd()
-    repo_config = cfg.repo_config_path(root)
-    if repo_config.exists():
-        click.echo(repo_config.read_text(), nl=False)
-        return
-    if (root / ".git").exists():
-        click.echo("# no .gitflower/config.yaml — defaults in effect:")
-        click.echo(cfg.dump_repo_config(cfg.default_repo_config()), nl=False)
-        return
+    if not want_global:
+        try:
+            root = _repo_root()
+        except click.ClickException:
+            root = None
+        if root is not None:
+            try:
+                click.echo(cfg.dump_repo_config(cfg.load_repo_config(root)), nl=False)
+            except cfg.ConfigError as exc:
+                raise click.ClickException(str(exc))
+            return
     global_cfg = _global_config(ctx)
     click.echo(f"# global config ({global_cfg.path or 'built-in defaults'}):")
     data = {
@@ -118,15 +141,11 @@ def config_show(ctx: click.Context) -> None:
 
 @config_group.command("edit")
 def config_edit() -> None:
-    """Open the repo configuration in $EDITOR and validate the result."""
+    """Open the repository's git config in an editor and validate the result."""
     root = _repo_root()
-    path = cfg.repo_config_path(root)
-    if not path.exists():
-        raise click.ClickException("no configuration yet — run `gitflower init` first")
-    editor = os.environ.get("EDITOR", "nano")
-    result = subprocess.run([editor, str(path)])
+    result = subprocess.run(["git", "-C", str(root), "config", "--edit"])
     if result.returncode != 0:
-        raise click.ClickException(f"{editor} exited with {result.returncode}")
+        raise click.ClickException(f"git config --edit exited with {result.returncode}")
     try:
         cfg.load_repo_config(root)
     except cfg.ConfigError as exc:
@@ -139,12 +158,12 @@ def hook() -> None:
     """Internal hook handlers (invoked by the installed git hooks)."""
 
 
-@hook.command("pre-push")
+@hook.command("pre-receive")
 @click.option("--branch", required=True)
 @click.option("--old-ref", default="")
 @click.option("--new-ref", default="")
 @click.option("--ref", "ref_name", default="")
-def hook_pre_push(branch: str, old_ref: str, new_ref: str, ref_name: str) -> None:
+def hook_pre_receive(branch: str, old_ref: str, new_ref: str, ref_name: str) -> None:
     root = Path.cwd()
     try:
         repo_config = cfg.load_repo_config(root)

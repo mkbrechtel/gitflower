@@ -11,8 +11,7 @@ web:
   # localhost by default: put a TLS-terminating proxy in front, or change
   # deliberately to ":8747" to listen on all interfaces.
   address: "127.0.0.1:8747"
-  # entries match a branch of that exact name or any branch under that
-  # folder; pinned ones lead the repo view's branch list, hidden ones
-  # disappear from it (and from the commit graph)
-  pinned_branches: [main, integration, releases]
-  hidden_branches: [archive]
+
+# Per-repository settings — branch rules, protection policy and which
+# branches the repo view pins or hides — live in each bare repository's own
+# git config under [gitflower]. See gitflower(1).

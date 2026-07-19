@@ -16,21 +16,23 @@ configuration.
 .SH COMMANDS
 .TP
 .B init
-Initialize gitflower in the current repository: writes
-\fI.gitflower/config.yaml\fR with the default branch rules.
+Report the branch rules in effect for the current bare repository. Writes
+nothing: a repository with no \fBgitflower.*\fR keys is governed by the
+built-in defaults.
 .TP
 .B install
-Install the pre-push hook. Refuses to overwrite a foreign hook unless
-\fB\-\-force\fR is given.
+Install the pre-receive hook into the current bare repository. Refuses to
+overwrite a foreign hook unless \fB\-\-force\fR is given.
 .TP
 .B uninstall
 Remove gitflower-owned hooks.
 .TP
-.B config show
-Print the effective configuration.
+.B config show \fR[\fB\-\-global\fR]
+Print the current repository's effective gitflower settings, or the server
+configuration with \fB\-\-global\fR.
 .TP
 .B config edit
-Open the repository configuration in \fB$EDITOR\fR and validate the result.
+Open the repository's git config in an editor and validate the result.
 .TP
 .B create \fIPATH\fR
 Create a bare repository under the configured repos directory.
@@ -44,11 +46,13 @@ Start the web server. Every endpoint serves JSON, a full HTML page, and
 an HTML fragment from the same URL via content negotiation.
 .SH FILES
 .TP
-.I .gitflower/config.yaml
-Per-repository branch rules and protection policy.
+.I <bare-repo>/config
+Per-repository branch rules, protection policy and branch display settings,
+under \fB[gitflower]\fR. Only the repository's own config is read — never
+\fI~/.gitconfig\fR or the system config.
 .TP
 .I ~/.config/gitflower/config.yaml, /etc/gitflower/config.yaml
-Global configuration: repos directory and web address. The first file
+Server configuration: repos directory and web address. The first file
 found wins; \fB$GITFLOWER_CONFIG\fR or \fB\-\-config\fR override.
 .SH ENVIRONMENT
 .TP

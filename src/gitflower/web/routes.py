@@ -16,7 +16,13 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
 
 from gitflower import gitread, graph
-from gitflower.config import GlobalConfig
+from gitflower.config import (
+    ConfigError,
+    GlobalConfig,
+    RepoConfig,
+    default_repo_config,
+    load_repo_config,
+)
 from gitflower.slug import SlugError, validate_org_folder, validate_repo_path
 from gitflower.web import fragments, models, smarthttp
 from gitflower.web.respond import respond
@@ -69,6 +75,15 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
 
     def scan() -> gitread.ScanResult:
         return gitread.scan_repos(repos_dir, cfg.repos.scan_depth)
+
+    def _repo_config(repo) -> RepoConfig:
+        """A repo's own gitflower settings; a broken config falls back to the
+        defaults rather than taking the whole page down — the web UI displays,
+        it does not enforce, and the hook is where a bad config must be loud."""
+        try:
+            return load_repo_config(repo.path)
+        except ConfigError:
+            return default_repo_config()
 
     def _validated(repo_path: str) -> str:
         try:
@@ -258,13 +273,14 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
         request: Request, repo_path: str, full: bool, show_hidden: bool
     ) -> Response:
         repo = repo_or_404(repo_path)
+        repo_cfg = _repo_config(repo)
         flagged = gitread.branches(
-            repo, pinned=cfg.web.pinned_branches, hidden=cfg.web.hidden_branches
+            repo, pinned=repo_cfg.pinned_branches, hidden=repo_cfg.hidden_branches
         )
         branches = [
             models.Branch(**b) for b in flagged if show_hidden or not b["hidden"]
         ]
-        hide = () if show_hidden else cfg.web.hidden_branches
+        hide = () if show_hidden else repo_cfg.hidden_branches
         commits = gitread.commits(repo, GRAPH_LIMIT, hidden=hide)
         trunk = gitread.head_branch(repo)
         # commits only hidden branches follow up on grey out when expanded
