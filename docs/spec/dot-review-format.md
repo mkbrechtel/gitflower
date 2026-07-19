@@ -372,15 +372,17 @@ A per-merge-commit review. Heading uses `git show -m <sha>` — the merge-aware 
 # Review Merge-Commit 51c2c71 $ git show -m 51c2c712
 > From: Merger <merger@example.org>
 > Date: Mon, 18 May 2026 09:16:35 +0200
-> Subject: Merge branch 'feature/abc' into integration/greetings
+> Subject: [Merge-Request] feature/abc
 > Message:
-> > Merge branch 'feature/abc' into integration/greetings
+> > Merge branch 'feature/abc' into trunk
 > >
 > > Adds two greeting lines to README.md.
+> >
+> > Merge-Request: feature/abc
 
 ## Diff from parent 1 $ git show -m -1 51c2c712
 
-## File "README.md" modified $ git diff d784110:README.md..51c2c712:README.md
+### File "README.md" modified $ git diff d784110:README.md..51c2c712:README.md
 > @@ -1 +1,3 @@
 > 1 1: # Demo project
 > 2: +Hello from feature.
@@ -393,7 +395,7 @@ A per-merge-commit review. Heading uses `git show -m <sha>` — the merge-aware 
 
 The empty-diff-from-parent-N subsection still appears as a reviewable section — its emptiness is a structural fact about the merge and reviewers can comment on it ("good, no surprising merger additions"). For conflict-resolved merges both (or all) parent-diff subsections carry content; the merge-only changes show up in the parent subsections that have non-empty diffs.
 
-Per-file subsections under a parent-diff are the same `## File …` shape as everywhere else — the format has exactly two heading levels, the `# Review …` heading and `##` sections. A `## File` belongs to the most recent `## Diff from parent <N>` heading above it; line order is the containment, and each File heading's recipe names its exact comparison anyway, so nothing depends on nesting depth. Body shapes follow the same lifecycle family as in `Commit` reviews.
+Per-file subsections under a parent-diff use H3 (`### File …`) since H2 is already taken by the parent-diff itself. Body shapes follow the same lifecycle family as in `Commit` reviews.
 
 Merge-commits are the review surface of the MR workflow: every merge onto the integration branch is reviewed, and the review of the integrator's merge commit is the review of the MR. Per-feature-commit reviews live in their own `Commit` reviews and dedup naturally.
 
@@ -587,11 +589,6 @@ prose; no shift, no escape, no special casing.
 
 The writer never emits a non-indented `# ` or `## ` inside a
 user-content body.
-
-There is no structural H3: the format has exactly two heading
-levels — the one `# Review …` heading and `##` sections. A
-column-0 `### ` line is an unknown line, preserved and displayed
-like any other.
 
 ## Storage
 
