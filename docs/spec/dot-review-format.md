@@ -372,13 +372,11 @@ A per-merge-commit review. Heading uses `git show -m <sha>` — the merge-aware 
 # Review Merge-Commit 51c2c71 $ git show -m 51c2c712
 > From: Merger <merger@example.org>
 > Date: Mon, 18 May 2026 09:16:35 +0200
-> Subject: [Merge-Request] feature/abc
+> Subject: Merge branch 'feature/abc' into integration/greetings
 > Message:
-> > Merge branch 'feature/abc' into trunk
+> > Merge branch 'feature/abc' into integration/greetings
 > >
 > > Adds two greeting lines to README.md.
-> >
-> > Merge-Request: feature/abc
 
 ## Diff from parent 1 $ git show -m -1 51c2c712
 
