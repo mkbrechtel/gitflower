@@ -5,7 +5,7 @@
 
 # `.review` *(dot-review)* — File format for git based code reviews!
 
-A single-file format for one code review of one git object. Loosely based on Markdown, with a fixed chapter structure: a single `# Review <Type> <short-sha> $ <git command>` heading binding the file to the reviewed object, H2 = sub-section (reviewer subsections, per-file content), list items = reviewer events. Patch / file content is `> `-quoted verbatim from git so the review reads like an annotated diff.
+A single-file format for one code review, optionally scoped to one git object. Loosely based on Markdown, with a fixed chapter structure: a single `# Review <Type> <short-sha> $ <git command>` heading binding the file to the reviewed object, H2 = sub-section (reviewer subsections, per-file content), list items = reviewer events. Patch / file content is `> `-quoted verbatim from git so the review reads like an annotated diff.
 
 This file specifies the on-disk format. The reference reader/writer is gitflower; its commands, TUI, and notes-ref integration are documented separately in [`./gitflower-review.md`](./gitflower-review.md).
 
@@ -29,7 +29,7 @@ dot-review-File-Version: 0
 dot-review-Intro: This file uses the .review format — a patch-quoting markdown-ish file format with a fixed chapter structure. Every heading is a review section, every `> ` line is verbatim git content,  every list item (`-` or `*`) is a reviewer reaction.
 dot-review-Docs-Link: https://gitflower.mkbrechtel.dev/docs/spec/dot-review-format
 ---
-# Review <Type> <short-sha> $ <git command>
+# Review …
 …
 ```
 
@@ -61,27 +61,29 @@ When adding new functionality to the format make sure that someone who knows how
 
 ## Top-level structure
 
-A `.review` file scopes to **a single git object** — a blob, a tree, a commit, or a merge commit — and its one top-level heading binds the file to that object:
+A `.review` file is either **scoped to a single git object** — a commit or a merge commit — or an **open review** that binds to no object at all.
+
+**A scoped review** carries the scope marker in its heading:
 
 ```
 # Review <Type> <short-sha> $ <git command on the full OID>
 ```
 
-`<Type>` is one of `Blob`, `Tree`, `Commit`, `Merge-Commit`. The title carries the abbreviated OID for the reader; the recipe carries the **full OID**, so the file stays pinned to exactly one object however refs later move. The heading is unique and mandatory — nothing else exists at H1 level.
+`<Type>` is `Commit` or `Merge-Commit`. The title carries the abbreviated OID for the reader; the recipe carries the **full OID**, so the file stays pinned to exactly one object however refs later move. The heading is unique and mandatory — nothing else exists at H1 level.
+
+A scoped review is **complete by construction**: it contains the object's entire diff — every `## File` subsection for every touched file, and for a merge every `## Diff from parent <N>` subsection including empty ones. Scope is the whole object, never a slice of it.
+
+**An open review** has no scope marker — the heading is a bare `# Review`. The file is initially empty on creation: header block, heading, meta lines, nothing else. The reviewer adds artifact subsections arbitrarily as the review proceeds — each an H2 with the usual `$ <git command>` recipe quoting the artifact (e.g. `## File "<path>" $ git show <blob-sha>`), using the same Git-Content body shapes as scoped reviews.
 
 **The part after `$` in every heading is a literal, copy-paste-runnable git command** that reproduces what's quoted below it. Title on the left, reproduction command on the right.
 
-Under the heading, the reviewer-authored content comes first — meta lines, verdict-reached-by lines, and `## Note` / `## Remark` / `## Issue` subsections — followed by the object body, whose shape is fixed by `<Type>`:
+Under the heading, the reviewer-authored content comes first — meta lines, verdict-reached-by lines, and `## Note` / `## Remark` / `## Issue` subsections — followed in a scoped review by the object body, whose shape is fixed by `<Type>`:
 
-**`# Review Blob <short-sha> $ git cat-file blob <sha>`** — content of a single file blob, line-numbered. Reviewers anchor events to specific lines.
-
-**`# Review Tree <short-sha> $ git ls-tree <sha>`** — listing of a tree object (one `> ` line per entry). Reviewers anchor events to entries or comment on tree-level concerns.
-
-**`# Review Commit <short-sha> $ git show <sha>`** — a non-merge commit: headers + message + per-file diff. Per-file `## File "<path>"` subsections embed the per-blob review of the touched blob inline (see *Cross-references*) so the commit review is self-contained.
+**`# Review Commit <short-sha> $ git show <sha>`** — a non-merge commit: headers + message + per-file diff, one `## File "<path>"` subsection per touched file.
 
 **`# Review Merge-Commit <short-sha> $ git show -m <sha>`** — a merge commit with **N explicit `## Diff from parent <N> $ git show -m -<N> <sha>` subsections, one per parent, including empty ones**. Each parent subsection carries the same per-file structure as a `Commit` review. The presence of all N subsections — even empties — makes the merge's structural shape reviewable.
 
-Each `.review` covers exactly one object. Multi-artefact reviews (a feature branch's diff, a tree-browsing session) compose at storage time: each artefact gets its own `.review`, keyed by its SHA — in the tree under `reviews/` once submitted, in the local `refs/notes/reviews` draft while being written. The unifying principle is **every review anchors to a git artefact addressed by its SHA** — no review action lives outside that lattice.
+A scoped review covers exactly one object; an open review covers whatever the reviewer put into it. In both, the unifying principle holds: **every review action anchors to a git artefact addressed by its SHA** — quoted behind a recipe heading — no review action lives outside that lattice.
 
 ## Reviewer-authored content
 
@@ -224,7 +226,7 @@ Multiple `## Issue` subsections in the reviewer-authored content are fine — ea
 
 ## Git-Content body shapes
 
-Three generic `> `-quoted body shapes for git output. Every section / subsection that quotes git content (`Blob` body, `Commit` per-file subsections, `Merge-Commit` per-parent per-file subsections, `## Note` subsections, embedded per-blob review subsections) uses one of these.
+Three generic `> `-quoted body shapes for git output. Every section / subsection that quotes git content (`Commit` per-file subsections, `Merge-Commit` per-parent per-file subsections, `## Note` subsections, an open review's artifact subsections) uses one of these.
 
 ### Object body
 
@@ -258,7 +260,6 @@ The gutter mirrors git's `@@ -<old> +<new> @@` convention: old (left) before new
 - `> <new>: +<text>` — added line, `<new>` is the new-side number
 - `> <old> <new>: <text>` — context line, old number first, new number second, matching `@@ -<old> +<new> @@` left-to-right.
 
-
 ### Deletion body
 
 A file that's gone in the new tree, presented end-to-end as if it were a diff that deletes every old-side line.
@@ -272,43 +273,12 @@ Example:
 
 Reads more obviously as "this file is gone" than a plain content listing would.
 
-## `# Review Blob <short-sha> $ git cat-file blob <sha>` section
-
-A per-blob review. Heading carries the blob SHA and the recipe that reproduces the file content. Body is the *Object body* shape — every line of the blob as `> <N>: <line>`. The blob may be referenced by any number of paths across the repo's history; the per-blob review captures commentary on the content itself, independent of path.
-
-Example:
-```
-# Review Blob 1a2b3c4 $ git cat-file blob 1a2b3c4d
-> 1: package greet
-> 2:
-> 3: func Hello(name string) string {
-> 4:     return "Hello, " + name
-> 5: }
-```
-
-The reviewer-authored content of a `Blob` review typically holds line-level commentary (events anchored to specific `> N:` lines) plus an overall blob-level verdict if the workflow uses verdicts at blob granularity.
-
-## `# Review Tree <short-sha> $ git ls-tree <sha>` section
-
-A per-tree review. Heading carries the tree SHA and the `git ls-tree` recipe. Body is the ls-tree output, one entry per `> ` line, **paths JSON-encoded**.
-
-Example:
-```
-# Review Tree b7c8d9e $ git ls-tree b7c8d9e0
-> 100644 blob a1b2c3d4    "README.md"
-> 100644 blob d4e5f6a7    "Makefile"
-> 040000 tree e5f6a7b8    "src"
-> 040000 tree f0a1b2c3    "docs"
-```
-
-Per-tree reviews comment on the directory's shape itself (missing file? wrong permissions? unexpected subtree?) rather than on any specific file's content — those live in the per-blob reviews of the listed blob SHAs, fetched separately by their own SHAs.
-
 ## `# Review Commit <short-sha> $ git show <sha>` section
 
 A per-commit review of a non-merge commit. Heading reproduces the commit's full picture (headers + message + diff). Body has two parts:
 
 1. A quoted block with the commit's headers and message.
-2. One `## File "<path>" …` subsection per file touched by the commit, choosing the lifecycle-appropriate heading and body shape.
+2. One `## File "<path>" …` subsection per file touched by the commit, choosing the lifecycle-appropriate heading and body shape. Every touched file is present — the scoped review carries the commit's complete diff.
 
 Example:
 ```
@@ -344,39 +314,6 @@ Per-file subsection heading shapes by lifecycle:
 | Deleted | `## File "<path>" deleted $ git show <oldblob>` | *Deletion body* |
 | Moved (pure rename) | `## File "<oldpath>" moved to "<newpath>"` | empty — nothing to reproduce |
 | Moved + modified | `## File "<oldpath>" modified and moved to "<newpath>" $ git diff <oldblob>..<newblob>` | *Diff body* |
-
-### Cross-references: embedded per-blob review
-
-After each per-file subsection, the commit review embeds the corresponding **per-blob review** as a peer H2 subsection — keeping the commit review self-contained even though the per-blob commentary lives in its own note.
-
-Example:
-```
-## File "b.txt" created $ git show a1b2c3d
-> 1: feature B
-> 2: initial implementation
-> 3: line 3
-
-## Blob "b.txt" review $ git notes --ref=reviews show a1b2c3d
-> dot-review-File-Version: 0
-> dot-review-Intro: …
-> dot-review-Docs-Link: …
-> ---
-> # Review Blob a1b2c3d $ git cat-file blob a1b2c3d
-> - Verdict-reached-by: Markus <markus@example.org>; Approved
->
-> 1: feature B
-> 2: initial implementation
-> 3: line 3
->
->   - Commented-by: Alice <alice@example.com>
->     Looks clean.
-```
-
-The body is the per-blob `.review` note quoted verbatim using the *Object body* shape — every line `> `-prefixed. The reader of the commit review thus sees both the line-level commentary on the blob (from its per-blob review) and the diff context (from the per-file diff subsection) without fetching a second note.
-
-The recipe (`$ git notes --ref=reviews show <newblob>`) is the source of truth; whether the embedded body is freshly fetched at render time or snapshotted at write time is a tool choice. The reader can always re-run the recipe to get the latest.
-
-For the modified lifecycle, the *new* blob's review is embedded; the old blob's review can be referenced separately if relevant.
 
 ## `# Review Merge-Commit <short-sha> $ git show -m <sha>` section
 
@@ -577,7 +514,7 @@ Position decides anchor.
 
 **Line anchor.** An event placed after one or more `> ` patch lines anchors to the immediately preceding `> ` line. Moving the event in the file moves the anchor by definition.
 
-**Section anchor.** An event placed at the top of a section or subsection — before the first `> ` line — anchors to the whole section. Section anchoring works for every container shape: the `# Review …` section itself, `## Note`, `## Remark`, `## Issue <title>`, the `## File …` lifecycle variants in `Commit` and `Merge-Commit` reviews, the embedded `## Blob "<path>" review` subsections, and the per-parent `## Diff from parent <N>` subsections in `Merge-Commit` reviews. Use it for "what I think about this file/blob/commit/issue/note overall" rather than a specific line.
+**Section anchor.** An event placed at the top of a section or subsection — before the first `> ` line — anchors to the whole section. Section anchoring works for every container shape: the `# Review …` section itself, `## Note`, `## Remark`, `## Issue <title>`, the `## File …` lifecycle variants in `Commit` and `Merge-Commit` reviews, an open review's artifact subsections, and the per-parent `## Diff from parent <N>` subsections in `Merge-Commit` reviews. Use it for "what I think about this file/blob/commit/issue/note overall" rather than a specific line.
 
 Example:
 ```
@@ -612,17 +549,17 @@ user-content body.
 
 ## Storage
 
-The submitted, shared form of a review is an **in-tree `.review` file** under `reviews/`, path `reviews/<object-kind>-<short-sha>.review` (e.g. `reviews/merge-commit-51c2c71.review`), committed on a `reviews/…` branch. Merging that branch into the integration branch publishes the review into the history that gates and tools read. Each file is a `.review` scoped to one object — commit, merge-commit, tree, or blob — keyed by the SHA in its path and headings.
+The submitted, shared form of a review is an **in-tree `.review` file** under `reviews/`, path `reviews/<object-kind>-<short-sha>.review` (e.g. `reviews/merge-commit-51c2c71.review`), committed on a `reviews/…` branch. Merging that branch into the integration branch publishes the review into the history that gates and tools read. A scoped review's path names its object — `reviews/commit-<short-sha>.review`, `reviews/merge-commit-<short-sha>.review` — keyed by the SHA in path and heading alike; an open review's filename is a freeform slug, `reviews/<slug>.review`.
 
 Local drafting state — WIP comments, read tracking — lives in a git notes ref, `refs/notes/reviews`, keyed by the reviewed object SHA: `git notes --ref=reviews show <sha>` is the lookup while a review is being written. Drafts never transport; submitting is what turns the draft into a review commit.
 
-The same per-object shape works at every layer: a per-blob review dedups across every commit that touches that blob content; a per-commit review dedups across every branch that contains the commit; a per-merge-commit review captures only what's new at the merge layer.
+Scoped reviews dedup naturally: a per-commit review holds for every branch that contains the commit, and a per-merge-commit review captures only what's new at the merge layer.
 
 ## Multi-reviewer merge
 
 The format is **mergeable across reviewers without conflict resolution**, because two properties hold:
 
-**The skeleton of every per-object review is deterministic from the object SHA.** Section headings, `$ <git command>` recipes, and the `> `-quoted bodies are all reproducible from `<sha>` alone — running the recipes gives byte-identical output. Two reviewers independently starting a review of the same object produce byte-identical skeletons.
+**The skeleton of every scoped review is deterministic from the object SHA.** Section headings, `$ <git command>` recipes, and the `> `-quoted bodies are all reproducible from `<sha>` alone — running the recipes gives byte-identical output. Two reviewers independently starting a review of the same object produce byte-identical skeletons. An open review has no skeleton beyond its heading; its sections are reviewer-appended content and merge as appends like everything else.
 
 **Reviewer events are append-only list items at fixed anchors.** A reviewer adds events; nothing mutates another reviewer's events. Merging two reviews of the same object is line-union over the deterministic skeleton.
 
