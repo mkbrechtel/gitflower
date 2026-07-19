@@ -11,7 +11,7 @@
 
 `gitflower review [--branch <branch>]` scaffolds a new `.review` for `<branch>` (defaulting to the current branch) and opens the TUI. If a `.review` already exists on the notes ref for the reviewed tip commit it is loaded as-is — re-running is non-destructive.
 
-**The default scaffold covers everything that changed since the last review.** The base ref is the tip of the most recent `[Review]` merge on the branch (falling back to `main`), and the scaffold emits the header block (`dot-review-File-Version: 0`, `dot-review-Intro:`, `dot-review-Docs-Link:`, closing `---`), the `# Review` heading with its meta lines (`SPDX-FileCopyrightText`, `SPDX-License-Identifier`, `Review-Head-Commit`, `Review-Branch`, `Created-By`), one `# Diff <base>..<tip> @ git diff <base>..<tip>` section spanning the full delta, and one `# Commit <sha> @ git show <sha>` section per commit in `base..tip`. The reviewer can add more sections on top (`# Repo Tree`, additional `# Commit` sections for earlier commits, `## File` entries via the Tree sidebar, …) but the default already names every artefact that changed since the last in-history review.
+**The default scaffold covers everything that changed since the last review.** The base ref is the tip of the most recent `[Review]` merge on the branch (falling back to `main`), and the scaffold emits the header block (`dot-review-File-Version: 0`, `dot-review-Intro:`, `dot-review-Docs-Link:`, closing `---`), the `# Review` heading with its meta lines (`SPDX-FileCopyrightText`, `SPDX-License-Identifier`, `Review-Head-Commit`, `Review-Branch`, `Created-By`), one `# Diff <base>..<tip> $ git diff <base>..<tip>` section spanning the full delta, and one `# Commit <sha> $ git show <sha>` section per commit in `base..tip`. The reviewer can add more sections on top (`# Repo Tree`, additional `# Commit` sections for earlier commits, `## File` entries via the Tree sidebar, …) but the default already names every artefact that changed since the last in-history review.
 
 `--empty-review` opts out of the change-covering scaffold and writes only the header block plus the bare `# Review` heading with its meta lines. Useful when the reviewer wants to assemble the review piecewise from the TUI's Tree / Commits sidebars rather than start from the full diff.
 
@@ -59,7 +59,7 @@ The sidebar surfaces the format-spec sections under these headings:
 | **Changes** | The `# Diff` section, folder-tree-grouped; drilling opens the file's `## File "<path>" modified` / `created` / `deleted` / `moved` subsection. |
 | **Commits** | The `# Commit` sections in oldest-first order. |
 | **Tree** | The `# Repo Tree` / `# Subfolder` sections at the tip SHA, expandable. |
-| **File Review** | The `## File "<path>" @ git show <sha>` subsections the reviewer has opened in object-view mode. |
+| **File Review** | The `## File "<path>" $ git show <sha>` subsections the reviewer has opened in object-view mode. |
 
 Sidebar keys: `j` / `k` move within a section, `Tab` cycles sections, `→` / `l` / `Enter` drill into the selected item, `i` opens a new-issue overlay (on General Issues), `e` edits the selected item, `q` quits.
 
@@ -120,7 +120,7 @@ A reviewer who has just finished reading a section is past its last `> ` line (t
 
 **Save semantics.** Full rewrite, not append-only. Every mutation (event added, range coalesced, verdict cycled, …) re-renders the in-memory session and writes to the notes ref (plus the file mirror if set). Auto-save debounces at two seconds; `s` saves immediately. Writes go through go-git's notes machinery.
 
-**Auto-import on first open.** If the notes ref already has a non-`.review` body (kernel-style sign-offs, CI bot output, freeform notes), the TUI imports it into the new `.review` as a `## Note @ git notes --ref=… show …` subsection under `# Review`. Kernel-style trailers stay grep-able in the imported body so the planned `review-gate` hook keeps recognising sign-offs after the conversion.
+**Auto-import on first open.** If the notes ref already has a non-`.review` body (kernel-style sign-offs, CI bot output, freeform notes), the TUI imports it into the new `.review` as a `## Note $ git notes --ref=… show …` subsection under `# Review`. Kernel-style trailers stay grep-able in the imported body so the planned `review-gate` hook keeps recognising sign-offs after the conversion.
 
 ## Notes-ref interop
 
@@ -153,4 +153,4 @@ An earlier sketch had `gitflower review begin` / `diff` / `commit` / `commits` /
 
 ### Implementation lag
 
-The current Go implementation (`apps/gitflower/review/`, `apps/gitflower/tui/`) was written against an earlier draft of the format spec and does not yet match this document. Notable drift: events emit as `### Comment (From: …)` H3 headings instead of `- Commented-by: …` list items; section and per-file headings lack the `@ git …` reproduction recipe; the header block is missing; range markers emit as paired `### ReadStart` / `### ReadEnd` H3s instead of `* Read-by: …; begin` / `; end` list items; the default notes-ref constant is `refs/notes/review` (singular) instead of `refs/notes/reviews`. The spec here describes the *target* behaviour; rewriting Parse and Render to match is tracked separately.
+The current Go implementation (`apps/gitflower/review/`, `apps/gitflower/tui/`) was written against an earlier draft of the format spec and does not yet match this document. Notable drift: events emit as `### Comment (From: …)` H3 headings instead of `- Commented-by: …` list items; section and per-file headings lack the `$ git …` reproduction recipe; the header block is missing; range markers emit as paired `### ReadStart` / `### ReadEnd` H3s instead of `* Read-by: …; begin` / `; end` list items; the default notes-ref constant is `refs/notes/review` (singular) instead of `refs/notes/reviews`. The spec here describes the *target* behaviour; rewriting Parse and Render to match is tracked separately.
