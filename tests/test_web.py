@@ -202,16 +202,52 @@ def test_commit_view(client):
     page = client.get(f"/repos/app.git/commit/{sha}")
     assert "add binary" in page.text and "Changes" in page.text
     assert '<details class="file"' in page.text  # per-file diff sections
-    assert "file changed" in page.text or "files changed" in page.text  # diffstat
-    assert "Binary file not shown" in page.text  # binary.bin has no patch body
+    assert "1 file," in page.text  # the single column's diffstat
+    assert "Binary file not shown" in page.text  # binary.bin has no rows
     detail = client.get(
         f"/repos/app.git/commit/{sha}", headers={"Accept": "application/json"}
     ).json()
-    assert detail["sha"] == sha and detail["patch"]
+    assert detail["sha"] == sha
     assert {f["path"] for f in detail["files"]} == {"binary.bin"}
     assert detail["files"][0]["binary"] is True
-    assert detail["stats"]["files_changed"] == 1
+    (column,) = detail["columns"]
+    assert column["index"] == 1 and column["stats"]["files_changed"] == 1
     assert client.get("/repos/app.git/commit/0000000").status_code == 404
+
+
+def test_single_parent_commit_uses_the_side_by_side_table(client):
+    """The only diff view: a one-parent commit gets one column plus the result."""
+    data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
+    sha = next(b["sha"] for b in data["branches"] if b["name"] == "work/feature/thing")
+    page = client.get(f"/repos/app.git/commit/{sha}")
+    assert '<table class="diff"' in page.text and "result</th>" in page.text
+    assert "<pre class=\"patch\"" not in page.text  # the unified view is gone
+    assert 'class="tabs"' not in page.text  # one parent, no choice to offer
+    detail = client.get(
+        f"/repos/app.git/commit/{sha}", headers={"Accept": "application/json"}
+    ).json()
+    assert detail["diff_parent"] is None and len(detail["columns"]) == 1
+    (row,) = detail["files"][0]["rows"]
+    assert row["result_text"] == "feature work" and not row["merge_authored"]
+
+
+def test_root_commit_renders_against_the_empty_tree(client):
+    data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
+    sha = next(b["sha"] for b in data["branches"] if b["name"] == "main")
+    detail = client.get(
+        f"/repos/app.git/commit/{sha}", headers={"Accept": "application/json"}
+    ).json()
+    while detail["parents"]:  # walk first parents down to the root commit
+        detail = client.get(
+            f"/repos/app.git/commit/{detail['parents'][0]}",
+            headers={"Accept": "application/json"},
+        ).json()
+    (column,) = detail["columns"]
+    assert column["index"] is None and column["sha"] == ""
+    page = client.get(f"/repos/app.git/commit/{detail['sha']}")
+    assert "the empty tree" in page.text and '<table class="diff"' in page.text
+    assert "none (initial commit)" in page.text
+    assert 'class="tabs"' not in page.text
 
 
 def _merge_sha(client) -> str:
@@ -224,7 +260,7 @@ def test_merge_commit_defaults_to_side_by_side(client):
     detail = client.get(
         f"/repos/app.git/commit/{sha}", headers={"Accept": "application/json"}
     ).json()
-    assert len(detail["parents"]) == 2 and detail["parents"][0]["short"]
+    assert len(detail["parents"]) == 2 and len(detail["columns"]) == 2
     files = {f["path"]: f for f in detail["files"]}
     assert set(files) == {"side.txt", "long.txt", "binary.bin"}
     # side.txt came from the side branch: added vs parent 1, unchanged vs parent 2
@@ -242,7 +278,7 @@ def test_merge_commit_defaults_to_side_by_side(client):
     assert files["binary.bin"]["statuses"] == ["=", "A"] and files["binary.bin"]["binary"]
 
     page = client.get(f"/repos/app.git/commit/{sha}")
-    assert '<table class="merge"' in page.text and "result</th>" in page.text
+    assert '<table class="diff"' in page.text and "result</th>" in page.text
     assert 'class="tabs"' in page.text and f"?parent=2" in page.text
     # taken-from-one-side rows still read as classic diff additions: green +
     assert '<td class="res add"><span class="ln">1</span><span class="sign">+</span>side</td>' in page.text
@@ -250,22 +286,33 @@ def test_merge_commit_defaults_to_side_by_side(client):
     assert fragment.status_code == 200 and CHROME not in fragment.text
 
 
-def test_merge_parent_tabs_serve_plain_diffs(client):
+def test_parent_tabs_narrow_the_side_by_side_view(client):
+    """?parent=N is a column filter now, not a different view."""
     sha = _merge_sha(client)
     vs1 = client.get(
         f"/repos/app.git/commit/{sha}?parent=1", headers={"Accept": "application/json"}
     ).json()
-    assert vs1["diff_parent"] == 1
+    assert vs1["diff_parent"] == 1 and [c["index"] for c in vs1["columns"]] == [1]
     assert {f["path"] for f in vs1["files"]} == {"side.txt", "long.txt"}
     vs2 = client.get(
         f"/repos/app.git/commit/{sha}?parent=2", headers={"Accept": "application/json"}
     ).json()
-    assert vs2["diff_parent"] == 2
+    assert vs2["diff_parent"] == 2 and [c["index"] for c in vs2["columns"]] == [2]
     assert {f["path"] for f in vs2["files"]} == {"binary.bin"}
-    page = client.get(f"/repos/app.git/commit/{sha}?parent=2")
-    assert "Showing changes against parent 2" in page.text and 'class="tabs"' in page.text
+    page = client.get(f"/repos/app.git/commit/{sha}?parent=1")
+    assert '<table class="diff"' in page.text and 'class="tabs"' in page.text
+    # every table is one parent column plus the result
+    assert page.text.count("<th>") == 2 * page.text.count('<table class="diff"')
     assert client.get(f"/repos/app.git/commit/{sha}?parent=3").status_code == 404
     assert client.get(f"/repos/app.git/commit/{sha}?parent=0").status_code == 404
+
+
+def test_fold_and_unfold_links_keep_the_parent_selection(client):
+    sha = _merge_sha(client)
+    folded = client.get(f"/repos/app.git/commit/{sha}?parent=1")
+    assert f"/commit/{sha}?parent=1&full=1" in folded.text  # unfold keeps the column
+    unfolded = client.get(f"/repos/app.git/commit/{sha}?parent=1&full=1")
+    assert f'href="/repos/app.git/commit/{sha}?parent=1">fold unchanged lines' in unfolded.text
 
 
 def test_merge_full_unfolds(client):
@@ -289,7 +336,7 @@ def test_non_merge_commits_have_no_tabs(client):
     detail = client.get(
         f"/repos/app.git/commit/{sha}", headers={"Accept": "application/json"}
     ).json()
-    assert detail["diff_parent"] == 1
+    assert detail["diff_parent"] is None  # nothing to narrow: one parent already
 
 
 def test_404_serves_all_representations(client):

@@ -1,4 +1,4 @@
-"""Row alignment for the merge-commit side-by-side view.
+"""Row alignment for the side-by-side diff view.
 
 Pure geometry over diff data (like graph.py): the result file's lines plus
 each parent's 0-context diff against the result come in; aligned multi-column
@@ -15,7 +15,9 @@ how that parent relates to each result line:
 
 A row is `merge_authored` when the result matches NO parent — a line the
 merger inserted or hand-resolved, or a removal of a line every parent had.
-Those are exactly the decisions invisible in any single-parent diff.
+Those are exactly the decisions invisible in any single-parent diff. With
+only one column the flag is meaningless (every change would carry it), so it
+is never set below two parents.
 """
 
 from collections import deque
@@ -97,7 +99,7 @@ def _removal_rows(queues: list[deque], n: int, counters: list[int]) -> list[dict
                 "cells": cells,
                 "result_no": None,
                 "result_text": None,
-                "merge_authored": len(group) == n,
+                "merge_authored": n > 1 and len(group) == n,
             }
         )
     return rows
@@ -179,7 +181,7 @@ def build(result_lines: list[str], parent_hunks: list[list[dict]], full: bool = 
                 "cells": cells,
                 "result_no": lineno,
                 "result_text": result_lines[lineno - 1],
-                "merge_authored": not matches_a_parent,
+                "merge_authored": n > 1 and not matches_a_parent,
             }
         )
 
