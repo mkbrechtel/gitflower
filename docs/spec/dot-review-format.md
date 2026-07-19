@@ -21,8 +21,9 @@ This file specifies the on-disk format. The reference reader/writer is gitflower
 
 ## Header
 
-Every `.review` file starts with a header block of `Key: value` trailer lines, one per line, terminated by `---` on its own line:
+Every `.review` file starts with a header block of `Key: value` trailer lines, one per line, terminated by `---` on its own line.
 
+Example:
 ```
 dot-review-File-Version: 0
 dot-review-Intro: This file uses the .review format — a patch-quoting markdown-ish file format with a fixed chapter structure. Every heading is a review section, every `> ` line is verbatim git content,  every list item (`-` or `*`) is a reviewer reaction.
@@ -88,8 +89,9 @@ Sits directly under the `# Review …` heading, before the object body. Holds th
 
 ### Meta lines
 
-Meta lines start with `- ` and follow a `key: value` shape:
+Meta lines start with `- ` and follow a `key: value` shape.
 
+Example:
 ```
 # Review Commit dd56c2e $ git show dd56c2ea01a7
 - SPDX-FileCopyrightText: 2026 Markus <markus@example.org>
@@ -101,8 +103,9 @@ Meta lines start with `- ` and follow a `key: value` shape:
 
 ### Verdict-reached-by lines
 
-`- Verdict-reached-by: <Name> <<email>>; <state>` followed by an optional double-space-indented body:
+`- Verdict-reached-by: <Name> <<email>>; <state>` followed by an optional double-space-indented body.
 
+Example:
 ```
 - Verdict-reached-by: Markus <markus@example.org>; RequestedChanges
   Needs a test before merge.
@@ -129,6 +132,7 @@ Quote the body of an arbitrary **git note** inline. Any note from any ref the re
 
 Shape: `## Note $ <git command>` where the recipe fetches the note. Body uses the *Object body* shape (see *Body shapes* below) — quoting line-by-line lets a reviewer pin a comment to a specific line of the note.
 
+Example:
 ```
 ## Note $ git notes --ref=refs/notes/go-lint show 2d2442633399
 > 1: greet.go:14:2: warning: shadow declaration of 'err'
@@ -149,6 +153,7 @@ The recipe is the source-of-truth pointer; a Note body is never rewritten — th
 
 Shape: H2 heading (no title, no `$ <recipe>` — Remarks are pure reviewer output), then two-space-indented paragraphs, then one or more `- Remarked-by: Name <email>` signature lines. Reviewer events (`- Commented-by:`, `- Reacted-by:`, `- Question-asked-by:`, `- Answer-given-by:`) can appear inside, same as in any other section.
 
+Example:
 ```
 ## Remark
   First time we're touching the legacy auth path in this branch.
@@ -175,6 +180,7 @@ No resolve workflow — remarks are reference, not work. If a remark turns into 
 
 Shape: H2 heading with title, two-space-indented description block, then one or more `- Issued-by: Name <email>` **signature lines**, then any reviewer events (comments, reactions, questions, answers).
 
+Example:
 ```
 ## Issue name uses snake_case but project uses camelCase
   Several added identifiers (`parse_lines`, `total_count`) break
@@ -194,10 +200,11 @@ Shape: H2 heading with title, two-space-indented description block, then one or 
 
 Signatures (`- Issued-by: Name <email>`) carry no body — they're the issue's owners. The first signature is the creator; subsequent ones are co-signers who've made the issue their own (often when they hit the same problem reading further). At most one signature per (author, issue) — re-signing is a no-op.
 
-Un-signing means deleting your own signature line; the issue stays as long as at least one signature remains. An issue with zero signatures is orphan.
+Un-signing means deleting your own signature line; the issue stays as long as at least one signature remains. An issue with zero signatures is orphaned.
 
 **Resolving an issue**: add a `- Resolved-by: Name <email>` line inside the issue's body. Resolved is a marker event — no body, no parameter, just attribution — and one of them anywhere inside the issue closes it.
 
+Example:
 ```
 ## Issue name uses snake_case but project uses camelCase
   Several added identifiers break the existing convention.
@@ -221,8 +228,9 @@ Three generic `> `-quoted body shapes for git output. Every section / subsection
 
 ### Object body
 
-The full contents of a single git object (a blob, typically), every line emitted as `> <N>: <line>`:
+The full contents of a single git object (a blob, typically), every line emitted as `> <N>: <line>`.
 
+Example:
 ```
 > 1: package greet
 > 2:
@@ -231,8 +239,9 @@ The full contents of a single git object (a blob, typically), every line emitted
 
 ### Diff body
 
-A two-blob comparison, line-numbered before the diff sign so a reader can recover the position even from a truncated hunk:
+A two-blob comparison, line-numbered before the diff sign so a reader can recover the position even from a truncated hunk.
 
+Example:
 ```
 > @@ -1,4 +1,5 @@
 > 1 1: alpha
@@ -252,8 +261,9 @@ The gutter mirrors git's `@@ -<old> +<new> @@` convention: old (left) before new
 
 ### Deletion body
 
-A file that's gone in the new tree, presented end-to-end as if it were a diff that deletes every old-side line:
+A file that's gone in the new tree, presented end-to-end as if it were a diff that deletes every old-side line.
 
+Example:
 ```
 > 1: -package greet
 > 2: -
@@ -266,6 +276,7 @@ Reads more obviously as "this file is gone" than a plain content listing would.
 
 A per-blob review. Heading carries the blob SHA and the recipe that reproduces the file content. Body is the *Object body* shape — every line of the blob as `> <N>: <line>`. The blob may be referenced by any number of paths across the repo's history; the per-blob review captures commentary on the content itself, independent of path.
 
+Example:
 ```
 # Review Blob 1a2b3c4 $ git cat-file blob 1a2b3c4d
 > 1: package greet
@@ -279,8 +290,9 @@ The reviewer-authored content of a `Blob` review typically holds line-level comm
 
 ## `# Review Tree <short-sha> $ git ls-tree <sha>` section
 
-A per-tree review. Heading carries the tree SHA and the `git ls-tree` recipe. Body is the ls-tree output, one entry per `> ` line, **paths JSON-encoded**:
+A per-tree review. Heading carries the tree SHA and the `git ls-tree` recipe. Body is the ls-tree output, one entry per `> ` line, **paths JSON-encoded**.
 
+Example:
 ```
 # Review Tree b7c8d9e $ git ls-tree b7c8d9e0
 > 100644 blob a1b2c3d4    "README.md"
@@ -298,6 +310,7 @@ A per-commit review of a non-merge commit. Heading reproduces the commit's full 
 1. A quoted block with the commit's headers and message.
 2. One `## File "<path>" …` subsection per file touched by the commit, choosing the lifecycle-appropriate heading and body shape.
 
+Example:
 ```
 # Review Commit dd56c2e $ git show dd56c2ea01a7
 > From: Author <author@example.org>
@@ -334,8 +347,9 @@ Per-file subsection heading shapes by lifecycle:
 
 ### Cross-references: embedded per-blob review
 
-After each per-file subsection, the commit review embeds the corresponding **per-blob review** as a peer H2 subsection — keeping the commit review self-contained even though the per-blob commentary lives in its own note:
+After each per-file subsection, the commit review embeds the corresponding **per-blob review** as a peer H2 subsection — keeping the commit review self-contained even though the per-blob commentary lives in its own note.
 
+Example:
 ```
 ## File "b.txt" created $ git show a1b2c3d
 > 1: feature B
@@ -368,6 +382,7 @@ For the modified lifecycle, the *new* blob's review is embedded; the old blob's 
 
 A per-merge-commit review. Heading uses `git show -m <sha>` — the merge-aware show that emits one diff per parent. Body holds the commit's headers and message in the same quoted shape as a `Commit` review, followed by **N `## Diff from parent <N> $ git show -m -<N> <sha>` subsections, one per parent in order, including empty ones**. Each parent subsection carries per-file `## File "<path>" …` subsections in the same lifecycle family as a regular commit review.
 
+Example:
 ```
 # Review Merge-Commit 51c2c71 $ git show -m 51c2c712
 > From: Merger <merger@example.org>
@@ -418,6 +433,7 @@ Full event shape: `<Keyword>-by: Name <email@example.org>[ @<RFC3339>][; <args>]
 
 ### Range markers (read / skip)
 
+Example:
 ```
 * Read-by: Markus <markus@example.org>; begin
 * Read-by: Markus <markus@example.org>; end
@@ -447,6 +463,7 @@ Same rules apply to `Skipped-by: …; begin` / `Skipped-by: …; end`.
 
 ### Comments
 
+Example:
 ```
 - Commented-by: Markus <markus@example.org>
   First paragraph of the comment. The first line is the comment's
@@ -470,6 +487,7 @@ indentation level stays consistent.
 
 Same shape as comments except the bullet says `Question-asked-by:`. A question event is "I'd like an answer" — distinct from a comment which is "here's what I think".
 
+Example:
 ```
 - Question-asked-by: Markus <markus@example.org>
   Why "revised"? Was there an earlier version that got squashed?
@@ -477,8 +495,9 @@ Same shape as comments except the bullet says `Question-asked-by:`. A question e
 
 ### Answers
 
-Every `Question-asked-by:` deserves an answer. An `Answer-given-by:` is a **nested list item inside the question's body**, two extra spaces of indent (so four total). The blank line between question body and the nested `- Answer-given-by:` matters — without it the answer would parse as another inline list inside the question's prose rather than a child event:
+Every `Question-asked-by:` deserves an answer. An `Answer-given-by:` is a **nested list item inside the question's body**, two extra spaces of indent (so four total). The blank line between question body and the nested `- Answer-given-by:` matters — without it the answer would parse as another inline list inside the question's prose rather than a child event.
 
+Example:
 ```
 - Question-asked-by: Markus <markus@example.org>
   Why "revised"? Was there an earlier version that got squashed?
@@ -499,6 +518,7 @@ Structurally, `Answer-given-by:` is a normal `-` event — same `Name <email>` a
 
 ### Reactions
 
+Example:
 ```
 - Reacted-by: Markus <markus@example.org>; 👍
 - Reacted-by: Alice <alice@example.com>; 👎
@@ -512,8 +532,9 @@ anchor)**. The same author can stack different emojis at one anchor
 (`👍` and `🎉`), and re-submitting the same emoji replaces in place
 rather than appending a duplicate.
 
-Reactions can also be **nested under a Commented-by, Question-asked-by, or Answer-given-by** — same `- Reacted-by: …; <emoji>` shape, indented two extra spaces so it sits as a child of the parent event:
+Reactions can also be **nested under a Commented-by, Question-asked-by, or Answer-given-by** — same `- Reacted-by: …; <emoji>` shape, indented two extra spaces so it sits as a child of the parent event.
 
+Example:
 ```
 - Commented-by: Alice <alice@example.com>
   Clean refactor.
@@ -558,6 +579,7 @@ Position decides anchor.
 
 **Section anchor.** An event placed at the top of a section or subsection — before the first `> ` line — anchors to the whole section. Section anchoring works for every container shape: the `# Review …` section itself, `## Note`, `## Remark`, `## Issue <title>`, the `## File …` lifecycle variants in `Commit` and `Merge-Commit` reviews, the embedded `## Blob "<path>" review` subsections, and the per-parent `## Diff from parent <N>` subsections in `Merge-Commit` reviews. Use it for "what I think about this file/blob/commit/issue/note overall" rather than a specific line.
 
+Example:
 ```
 ## File "greet.go" modified $ git diff a1b2c3d..e4f5a6b
 
