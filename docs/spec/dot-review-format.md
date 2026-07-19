@@ -94,14 +94,10 @@ Meta lines start with `- ` and follow a `key: value` shape:
 # Review Commit dd56c2e $ git show dd56c2ea01a7
 - SPDX-FileCopyrightText: 2026 Markus <markus@example.org>
 - SPDX-License-Identifier: EUPL-1.2
-- Review-Head-Commit: 2d2442633399f38197249ae9f30b001e0943564a
-- Review-Branch: experiments/stack-review
 - Created-By: Mirian <mirian@example.org>
 ```
 
-`Review-Head-Commit` is what HEAD was when the review file was created — the *point in time* of the review, not a commit being reviewed.
-
-**SPDX license / copyright lines** live here as meta lines. The `.review` is its own copyrightable artefact — reviewers may want to license their prose separately from the code under review — and reviewers naturally edit this content. REUSE-style scanners pick the tags up unchanged through the leading `- ` (verified against REUSE 5.0.2 / spec v3.3).
+**SPDX license / copyright lines** live here as meta lines. The `.review` is its own licensable artefact — the project maintainers may want to have the same license their reviews then the project code. Also the reviews contain the code themselves. REUSE-style scanners pick the tags up unchanged through the leading `- ` (verified against REUSE 5.0.2 / spec v3.3).
 
 ### Verdict-reached-by lines
 
