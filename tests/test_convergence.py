@@ -41,8 +41,13 @@ def both(tmp_path):
     (work / "issues" / "crash.md").write_text(issue_md(UUID_B, "Crash on save", status="open"))
     git(work, "add", ".")
     git(work, "commit", "-m", "qa: crash")
+    git(work, "checkout", "-b", "feature/thing")
+    (work / "feature.txt").write_text("feature\n")
+    git(work, "add", ".")
+    git(work, "commit", "-m", "the work")
+    git(work, "commit", "--allow-empty", "-m", "MR: add the feature")
     git(work, "checkout", "main")
-    git(work, "push", "origin", "main", "qa")
+    git(work, "push", "origin", "main", "qa", "feature/thing")
     config = tmp_path / "config.yaml"
     config.write_text(f"repos:\n  directory: {root}\n")
     return config, root
@@ -66,6 +71,7 @@ def web_json(root, path, **params):
 DUAL_SURFACE = [
     ("/repos/", ["list"]),
     ("/repos/app.git/issues/", ["issues", "list", "app.git"]),
+    ("/repos/app.git/mrs/", ["mr", "list", "--repo", "app.git"]),
 ]
 
 
@@ -73,6 +79,15 @@ DUAL_SURFACE = [
 def test_cli_and_web_serve_the_same_json(both, path, argv):
     config, root = both
     assert cli_json(config, argv) == web_json(root, path)
+
+
+def test_the_mr_list_is_one_view(both):
+    """The merge-request list a script parses and the one a browser fetches
+    are the same object, not two renderings that happen to agree."""
+    config, root = both
+    data = cli_json(config, ["mr", "list", "--repo", "app.git"])
+    assert [m["title"] for m in data["mrs"]] == ["add the feature"]
+    assert data == web_json(root, "/repos/app.git/mrs/")
 
 
 def test_issue_filter_agrees_across_surfaces(both):
