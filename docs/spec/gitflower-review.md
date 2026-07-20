@@ -130,7 +130,7 @@ The `.review` parser ignores notes that don't begin with `dot-review-File-Versio
 
 ### Planned `review-gate` workflow
 
-The `review-gate` branch-protection workflow blocks the mainline push unless the integration branch's history carries the required reviews: every merge onto the integration branch has a submitted in-tree `.review` covering that merge commit with at least one `- Approved-by: …` from an eligible approver, no standing `- Rejected-by:` from one, and no unresolved findings remain — resolution is validated over further merges into the integration branch. The verdict events are kernel-trailer-shaped, so trailer-greppers read them natively; kernel trailers in commit messages stay recognised as a compatibility sign-off signal. The gate reads review commits, never notes — drafts gate nothing.
+The `review-gate` branch-protection workflow blocks the mainline push unless every merge onto the integration branch has a submitted in-tree `.review` covering that merge commit and meeting the required conditions — **approval**: at least one `- Approved-by: …` from an eligible approver and no standing `- Rejected-by:` from one; **review**: at least one `- Reviewed-by: …` with no unresolved findings. Which conditions are required is per-branch configuration (either or both); resolution is validated over further merges into the integration branch. The verdict events are kernel-trailer-shaped, so trailer-greppers read them natively; kernel trailers in commit messages stay recognised as a compatibility sign-off signal. The gate reads review commits, never notes — drafts gate nothing.
 
 ## References
 

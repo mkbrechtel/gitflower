@@ -115,9 +115,9 @@ Example:
   Go ahead — trivial mechanical change.
 ```
 
-`- Reviewed-by: <Name> <<email>>` — "I read this in detail." A claim of diligence, nothing more: what to do about it lives in the file as comments, questions, and issues.
+`- Reviewed-by: <Name> <<email>>` — "I read this in detail." A claim of diligence, nothing more: what to do about it lives in the file as comments, questions, and issues. The `review-gate`'s *review* condition reads it, together with whether the findings it raised are resolved.
 
-`- Approved-by: <Name> <<email>>` — "go on with this." A green light, explicitly not a claim of detailed reading. This is the event the `review-gate` reads.
+`- Approved-by: <Name> <<email>>` — "go on with this." A green light, explicitly not a claim of detailed reading. The `review-gate`'s *approval* condition reads it; a gate may require approval, review, or both.
 
 `- Rejected-by: <Name> <<email>>` — this should not land, entirely. Reasons go in the body.
 
