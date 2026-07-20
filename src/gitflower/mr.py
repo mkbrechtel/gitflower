@@ -24,6 +24,7 @@ import re
 from dataclasses import dataclass, field
 
 import pygit2
+from pygit2.enums import SortMode
 
 MR_REF_PREFIX = "refs/mrs/"
 REQUEST = "request"
@@ -546,12 +547,18 @@ def concluding_merges(repo: pygit2.Repository, old: str, new: str) -> dict[str, 
     gitflower helper writes one. Otherwise the shape says it: a merge that
     reaches a request through a later parent but not through its first parent
     is what brought that request in.
+
+    The walk runs ancestors first, so the innermost merge claims a request
+    before anything containing it can. What concludes a request is the merge
+    that brought it in — an integration branch's merge of the work branch —
+    and every later merge in the chain up to the mainline also contains it
+    without having concluded anything.
     """
     concluded: dict[str, str] = {}
     new_commit = repo.get(new)
     if new_commit is None or not isinstance(new_commit, pygit2.Commit):
         return concluded
-    walker = repo.walk(new_commit.id)
+    walker = repo.walk(new_commit.id, SortMode.TOPOLOGICAL | SortMode.REVERSE)
     old_commit = repo.get(old) if old and set(old) != {"0"} else None
     if old_commit is not None and isinstance(old_commit, pygit2.Commit):
         walker.hide(old_commit.id)
