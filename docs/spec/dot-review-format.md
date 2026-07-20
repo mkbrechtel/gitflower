@@ -53,7 +53,7 @@ Unknown lines in the body should be displayed to the user in the relevant sectio
 
 **Indentation marks containment, in steps of two spaces.** An indented block belongs to the nearest preceding element one step less indented: two spaces after a `## Subsection` heading is the subsection's own prose, two spaces after a reviewer-action list item is that event's body, and each further two spaces nests a child (an answer under its question, a reaction under a comment). The block runs as long as the indented lines continue and ends as soon as the next line-block begins (another event, another heading, a `> ` quoted line, …). Unindented column-0 lines belong to the section/subsection structure itself.
 
-Reviewer actions are list items with the shape `[<indent-spaces>]<bullet> <Keyword>-by: Name <email>[ @<RFC3339>][; <args>]`, optionally followed by a body indented two spaces below. The keyword is a kebab-cased past-tense verb (`Read-by:`, `Commented-by:`, `Verdict-reached-by:`, …) mirroring git's trailer convention (`Reviewed-By:`, `Signed-off-by:`). The bullet splits range markers (`*` for `Read-by:` / `Skipped-by:`) from everything else (`-`). The optional ` @<RFC3339>` slot carries an event timestamp when the author is opted in; the optional `; <args>` slot carries kind-specific parameters (an emoji, a verdict state, `begin` / `end`, …). Per-event semantics and multiplicity rules live under *Reviewer events*. Unknown `-by:` keys are preserved verbatim and displayed in place, same as any other unknown line.
+Reviewer actions are list items with the shape `[<indent-spaces>]<bullet> <Keyword>-by: Name <email>[ @<RFC3339>][; <args>]`, optionally followed by a body indented two spaces below. The keyword is a kebab-cased past-tense verb (`Read-by:`, `Commented-by:`, `Approved-by:`, …) mirroring git's trailer convention (`Signed-off-by:`) — the verdict events are kernel trailers verbatim. The bullet splits range markers (`*` for `Read-by:` / `Skipped-by:`) from everything else (`-`). The optional ` @<RFC3339>` slot carries an event timestamp when the author is opted in; the optional `; <args>` slot carries kind-specific parameters (an emoji, `begin` / `end`, …). Per-event semantics and multiplicity rules live under *Reviewer events*. Unknown `-by:` keys are preserved verbatim and displayed in place, same as any other unknown line.
 
 **Paths in `.review` content are JSON-encoded strings** (RFC 8259). Anywhere a path appears as content — section heading titles, tree-listing body entries, anywhere else — wrap it in double quotes and escape special characters per JSON string rules: `\"`, `\\`, `\n`, `\t`, control-character `\u00xx` escapes. Stays parseable even for paths containing spaces, quotes, or control characters. Recipe-side arguments (after `$`) are the exception: they follow git/shell quoting rules since the recipe is meant to be pasted into a shell.
 
@@ -77,7 +77,7 @@ A scoped review is **complete by construction**: it contains the object's entire
 
 **The part after `$` in every heading is a literal, copy-paste-runnable git command** that reproduces what's quoted below it. Title on the left, reproduction command on the right.
 
-Under the heading, the reviewer-authored content comes first — meta lines, verdict-reached-by lines, and `## Note` / `## Remark` / `## Issue` subsections — followed in a scoped review by the object body, whose shape is fixed by `<Type>`:
+Under the heading, the reviewer-authored content comes first — meta lines, verdict lines, and `## Note` / `## Remark` / `## Issue` subsections — followed in a scoped review by the object body, whose shape is fixed by `<Type>`:
 
 **`# Review Commit <short-sha> $ git show <sha>`** — a non-merge commit: headers + message + per-file diff, one `## File "<path>"` subsection per touched file.
 
@@ -87,7 +87,7 @@ A scoped review covers exactly one object; an open review covers whatever the re
 
 ## Reviewer-authored content
 
-Sits directly under the `# Review …` heading, before the object body. Holds the structured shapes the parser recognises below — meta lines, verdict-reached-by lines, and `## Note` / `## Remark` / `## Issue` subsections. No unindented free prose.
+Sits directly under the `# Review …` heading, before the object body. Holds the structured shapes the parser recognises below — meta lines, verdict lines, and `## Note` / `## Remark` / `## Issue` subsections. No unindented free prose.
 
 ### Meta lines
 
@@ -103,30 +103,27 @@ Example:
 
 **SPDX license / copyright lines** live here as meta lines. The `.review` is its own licensable artefact — the project maintainers may want to have the same license their reviews then the project code. Also the reviews contain the code themselves. REUSE-style scanners pick the tags up unchanged through the leading `- ` (verified against REUSE 5.0.2 / spec v3.3).
 
-### Verdict-reached-by lines
+### Verdict lines
 
-`- Verdict-reached-by: <Name> <<email>>; <state>` followed by an optional double-space-indented body.
+Three trailer-shaped verdict events, each with an optional two-space-indented body. They are independent — none is a state of another.
 
 Example:
 ```
-- Verdict-reached-by: Markus <markus@example.org>; RequestedChanges
-  Needs a test before merge.
-
-  Multi-paragraph summary works the same as comments — indent the body
-  by two spaces so it nests under the list item.
+- Reviewed-by: Markus <markus@example.org>
+  Read the whole delta; my asks are the two issues below.
+- Approved-by: Mirian <mirian@example.org>
+  Go ahead — trivial mechanical change.
 ```
 
-At most one verdict per (Name, email) — submitting again replaces in place.
+`- Reviewed-by: <Name> <<email>>` — "I read this in detail." A claim of diligence, nothing more: what to do about it lives in the file as comments, questions, and issues.
 
-`<state>` is one of:
+`- Approved-by: <Name> <<email>>` — "go on with this." A green light, explicitly not a claim of detailed reading. This is the event the `review-gate` reads.
 
-- `Open` — initial / "no verdict yet, still reading"
-- `ClarificationRequired` — "I'd give a verdict but I have unanswered questions blocking that". Distinct from `RequestedChanges`: the author hasn't been asked to do anything yet, they've been asked to *explain*. Naturally paired with one or more open `- Question-asked-by:` events elsewhere in the file.
-- `RequestedChanges` — needs work before merge
-- `Approved` — good to merge
-- `Denied` — reject; this work should not land
+`- Rejected-by: <Name> <<email>>` — this should not land, entirely. Reasons go in the body.
 
-PascalCase, like every other keyword. Unknown states are preserved verbatim and treated as `Open` for any sort / filter.
+At most one of each kind per (Name, email) — submitting again replaces in place. `Approved-by:` and `Rejected-by:` are mutually exclusive per reviewer: writing one replaces the other. `Reviewed-by:` is independent of both — `Reviewed-by:` plus `Approved-by:` is the thorough case, `Approved-by:` alone is the fast-track, and `Reviewed-by:` alone means "my asks are in the file — resolve them".
+
+There is no verdict state machine. The intermediate states are derived facts: no verdict events means not yet decided, an open `Question-asked-by:` means clarification is required, and unresolved `## Issue` items mean changes are requested.
 
 ### Note subsections
 
@@ -357,16 +354,16 @@ Every reviewer action is a markdown-ish list item. Two different bullets so
 | Bullet | Shape | Used for |
 |---|---|---|
 | `*` | `* <Keyword>-by: Name <email>[ @<RFC3339>][; <args>]` | Range markers (no body) — `Read-by:` / `Skipped-by:`. |
-| `-` | `- <Keyword>-by: Name <email>[ @<RFC3339>][; <args>]` | Everything else: `Commented-by:`, `Question-asked-by:`, `Answer-given-by:`, `Reacted-by:`, `Flagged-by:`, `Verdict-reached-by:`, `Issued-by:`, `Remarked-by:`, `Resolved-by:`. Optional body indented two spaces below. |
+| `-` | `- <Keyword>-by: Name <email>[ @<RFC3339>][; <args>]` | Everything else: `Commented-by:`, `Question-asked-by:`, `Answer-given-by:`, `Reacted-by:`, `Flagged-by:`, `Reviewed-by:`, `Approved-by:`, `Rejected-by:`, `Issued-by:`, `Remarked-by:`, `Resolved-by:`. Optional body indented two spaces below. |
 
 The body, when present, is **indented two spaces** so it nests under
 the list item. That indentation is what lets a comment contain its own
 markdown headings, lists, even nested blockquotes (`>`), without
 colliding with the section structure or with the patch-quote `> ` lines.
 
-All keyword names are **kebab-cased past-tense verbs** ending in `-by:` (`Read-by:`, `Commented-by:`, `Verdict-reached-by:`, …). They mirror git's trailer convention (`Reviewed-By:`, `Signed-off-by:`).
+All keyword names are **kebab-cased past-tense verbs** ending in `-by:` (`Read-by:`, `Commented-by:`, `Approved-by:`, …). They mirror git's trailer convention (`Signed-off-by:`), and the verdict events are kernel trailers verbatim.
 
-Full event shape: `<Keyword>-by: Name <email@example.org>[ @<RFC3339>][; <args>]`. The optional ` @<RFC3339>` slot carries an event timestamp when the writer is opted in; the optional `; <args>` slot carries kind-specific parameters (the emoji for `Reacted-by:`, the state for `Verdict-reached-by:`, `begin` / `end` for `Read-by:` and `Skipped-by:`).
+Full event shape: `<Keyword>-by: Name <email@example.org>[ @<RFC3339>][; <args>]`. The optional ` @<RFC3339>` slot carries an event timestamp when the writer is opted in; the optional `; <args>` slot carries kind-specific parameters (the emoji for `Reacted-by:`, `begin` / `end` for `Read-by:` and `Skipped-by:`).
 
 ### Range markers (read / skip)
 
@@ -451,7 +448,7 @@ items.
 
 Structurally, `Answer-given-by:` is a normal `-` event — same `Name <email>` attribution, same indented-body shape, same optional ` @<RFC3339>` timestamp — it just lives one indent level deeper than the `Question-asked-by:` it answers.
 
-**A Question is *open* if it has no `- Answer-given-by:` under it.** Open questions are what the `ClarificationRequired` verdict state refers to. Adding any `- Answer-given-by:` (from any reviewer, not necessarily the one who'd block) closes the question. Re-opening means deleting the existing answer(s) and asking again — there is no explicit "unanswer" event.
+**A Question is *open* if it has no `- Answer-given-by:` under it.** An open question is the derived "clarification required" state — tools surface it without any verdict encoding it. Adding any `- Answer-given-by:` (from any reviewer, not necessarily the one who'd block) closes the question. Re-opening means deleting the existing answer(s) and asking again — there is no explicit "unanswer" event.
 
 ### Reactions
 
@@ -504,9 +501,9 @@ Bots use the same `Name <email>` attribution shape as humans, so flags interleav
 
 The format defines only the event shape; **what to flag, when to scan, and how to render the flags is out of scope for this spec** and lives with the scanner and the reading tool. New categories are added by picking a new `; <category>` string — readers preserve unknown categories verbatim per the unknown-line rule.
 
-### Verdict-reached-by
+### Verdicts
 
-Defined under *Reviewer-authored content* § *Verdict-reached-by lines*. Only valid there.
+`Reviewed-by:`, `Approved-by:`, and `Rejected-by:` are defined under *Reviewer-authored content* § *Verdict lines*. Only valid there.
 
 ## Anchoring
 
@@ -571,15 +568,15 @@ What stays non-deterministic and may need merge attention:
 
 - **Reviewer-added subsections** — extra `## Note` / `## Remark` / `## Issue` items in the reviewer-authored content. Merge = union by heading; duplicates collapse.
 - **Issue collisions** — two reviewers raising `## Issue X` with the same title. Kept as duplicates (the TUI surfaces them — see *gitflower-review.md*) unless a tool merges titles by similarity.
-- **Verdict-reached-by per (Name, email)** — "latest replaces" is the collision rule; renormalization dedups re-submissions naturally when timestamps are present, otherwise the latest submission wins.
+- **Verdicts per (Name, email)** — at most one of each kind, "latest replaces" is the collision rule; renormalization dedups re-submissions naturally when timestamps are present, otherwise the latest submission wins.
 
 # Considerations
 
 Rationale, rejected paths, and open questions. Deletable as a whole once the spec settles.
 
-## No `Reviewed-by`
+## Kernel-trailer verdicts
 
-**No kernel-style `Reviewed-by:` trailer.** Kernel `Reviewed-by:` means "I read this patch and sign off"; `Verdict-reached-by: …; Approved` is a state in a review session's verdict machine. Different workflow, different semantics — keep them separate. Tools that need a kernel-style sign-off can recognise `Verdict-reached-by: …; Approved` directly.
+Earlier drafts kept a `Verdict-reached-by: …; <state>` machine (`Open`, `ClarificationRequired`, `RequestedChanges`, `Approved`, `Denied`) and deliberately avoided kernel-style `Reviewed-by:` as something semantically different. The machine collapsed: two of its states were derivable from content (open questions, unresolved issues), one was absence, and the remaining speech-acts are exactly the kernel trailers — so the format adopts them with the kernel's names and meanings. Tools that already grep kernel trailers read `.review` verdicts for free.
 
 ## Attaching reviews to history
 

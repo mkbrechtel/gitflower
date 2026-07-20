@@ -31,7 +31,7 @@ With `--no-tui` the scaffold is written and the process exits with a "where your
 
 ### `gitflower review merge` (build tag `with_review_merge`)
 
-Attaches the review to the branch history with a merge commit. The merge commit's subject is prefixed `[Review]`, and its body carries a verdict-count summary, a literal `git show <notes-sha>` recipe pointing at the notes-commit that holds the `.review` body, and the `Verdict-reached-by:` trailers copied verbatim. The merge carries the `.review` body into the tree at its `reviews/…` path — submission through the tree is the point of the merge; the notes draft stays local.
+Attaches the review to the branch history with a merge commit. The merge commit's subject is prefixed `[Review]`, and its body carries a verdict-count summary, a literal `git show <notes-sha>` recipe pointing at the notes-commit that holds the `.review` body, and the verdict trailers copied verbatim. The merge carries the `.review` body into the tree at its `reviews/…` path — submission through the tree is the point of the merge; the notes draft stays local.
 
 The exact mechanism by which the merge brings the notes-ref content in as the merge's second parent is unsettled — the spec at this point only sketches the commit-message shape, not the graph shape. See *Considerations*: §*Attaching reviews to history* in [`dot-review-format.md`](./dot-review-format.md) for the open candidates (orphan archive commit, `-s ours` of the notes-ref tip with a filter step, content-addressed second parent, tree-blob-only). The implementation currently uses the orphan-archive shape; that may change before format v1.
 
@@ -54,7 +54,7 @@ The sidebar surfaces the format-spec sections under these headings:
 | Sidebar entry | Surfaces |
 |---|---|
 | **Sources** | `# Review` meta lines (`Review-Head-Commit`, `Review-Branch`, `Created-By`, …) and an unknown-keys panel — read-only. |
-| **Verdicts** | The audit log of `- Verdict-reached-by:` events under `# Review`. |
+| **Verdicts** | The `- Reviewed-by:` / `- Approved-by:` / `- Rejected-by:` verdict events under `# Review`. |
 | **General Issues** | `## Issue` subsections under `# Review`. |
 | **Changes** | The `# Diff` section, folder-tree-grouped; drilling opens the file's `## File "<path>" modified` / `created` / `deleted` / `moved` subsection. |
 | **Commits** | The `# Commit` sections in oldest-first order. |
@@ -74,7 +74,7 @@ In diff or file mode the cursor sits on a single line; comments and markers anch
 - `a` / `g` — react Like (`Reacted-by: …; 👍`). `b` reacts Dislike (`; 👎`).
 - `u` — mark the current line unread.
 - `w` — toggle line-wrap.
-- `>` / `<` — cycle the reviewer's `Verdict-reached-by:` state.
+- `>` / `<` — set the reviewer's verdict event.
 - `n` / `N` — cycle to the next / previous event anchored at or near the current line.
 - `d` — delete the event under the cursor.
 - `s` — save now. Auto-save is debounced two seconds; manual save mostly exists for tests.
@@ -82,7 +82,7 @@ In diff or file mode the cursor sits on a single line; comments and markers anch
 
 ### Event entry overlays
 
-Single-line overlay for `Reacted-by:` (no body). Multi-line overlays with a text area for `Commented-by:`, `Question-asked-by:`, and `Verdict-reached-by:` (verdict pre-populates with the reviewer's current state). The `## Issue` overlay has a title field plus a body area; `Tab` switches focus between them. Submit with `Alt+Enter` or `Ctrl+S`; cancel with `Esc`.
+Single-line overlay for `Reacted-by:` (no body). Multi-line overlays with a text area for `Commented-by:`, `Question-asked-by:`, and verdicts (pre-populating the reviewer's current one). The `## Issue` overlay has a title field plus a body area; `Tab` switches focus between them. Submit with `Alt+Enter` or `Ctrl+S`; cancel with `Esc`.
 
 Answers to questions are entered the same way as comments, anchored to the parent `- Question-asked-by:` event so they render as nested `- Answer-given-by:` items under it.
 
@@ -104,7 +104,7 @@ A reviewer who has just finished reading a section is past its last `> ` line (t
 
 **Sidebar Remark numbering.** Multiple `## Remark` subsections render as "Remark 1", "Remark 2", … in the sidebar for navigation. The on-disk heading stays bare `## Remark`; the numbers are positional, not stored.
 
-**Open-question lane.** A separate sidebar entry lists every `- Question-asked-by:` with no `- Answer-given-by:` under it, so questions don't get lost in long reviews. Drives the `ClarificationRequired` verdict-state suggestion.
+**Open-question lane.** A separate sidebar entry lists every `- Question-asked-by:` with no `- Answer-given-by:` under it, so questions don't get lost in long reviews. Surfaces the derived clarification-required state.
 
 **Resolved-issue display.** `## Issue` subsections that carry a `- Resolved-by:` line render collapsed/dimmed in the sidebar. Removing the line re-opens the issue in the live view.
 
@@ -130,7 +130,7 @@ The `.review` parser ignores notes that don't begin with `dot-review-File-Versio
 
 ### Planned `review-gate` workflow
 
-The `review-gate` branch-protection workflow blocks the mainline push unless the integration branch's history carries the required reviews: every merge onto the integration branch has a submitted in-tree `.review` covering that merge commit with at least one `- Verdict-reached-by: …; Approved` from an eligible approver, and no unresolved findings remain — resolution is validated over further merges into the integration branch. Kernel-style trailers (`^(Reviewed-By|Acked-By|Signed-off-by): <Name> <<email>>`) in commit messages stay recognised as a compatibility sign-off signal. The gate reads review commits, never notes — drafts gate nothing.
+The `review-gate` branch-protection workflow blocks the mainline push unless the integration branch's history carries the required reviews: every merge onto the integration branch has a submitted in-tree `.review` covering that merge commit with at least one `- Approved-by: …` from an eligible approver, no standing `- Rejected-by:` from one, and no unresolved findings remain — resolution is validated over further merges into the integration branch. The verdict events are kernel-trailer-shaped, so trailer-greppers read them natively; kernel trailers in commit messages stay recognised as a compatibility sign-off signal. The gate reads review commits, never notes — drafts gate nothing.
 
 ## References
 
