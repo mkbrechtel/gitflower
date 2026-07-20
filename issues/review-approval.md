@@ -14,7 +14,7 @@ The `.review` format spec ([`../docs/spec/dot-review-format.md`](../docs/spec/do
 
 **Tree-first storage.** The submitted, shared form of a review is an in-tree `.review` file in a review commit under `reviews/…`, following the on-tree convention the format spec already sketches. The notes ref demotes to local drafting state — WIP comments, read-tracking — that never has to transport; submitting is what turns the draft into a review commit on a `reviews/…` branch, carrying the file under `reviews/` in the tree, and merging that branch into the integration branch publishes the review into the history the gate inspects. This is exactly the split the MR design already assumes; the format spec's *Storage* and *Multi-reviewer merge* sections get rewritten to match. The format itself barely changes: the deterministic skeleton and append-only events that made `cat_sort_uniq` work are the same properties that let concurrent in-tree review files merge cleanly.
 
-**Every merge onto the integration branch is reviewed.** The integration branch is what later lands on `main`, so its merge commits are the review surface: an MR's `/merge` arrives as a merge onto integration, and the review anchors to that `# Merge-Commit` section with its per-parent diff subsections — the branch delta exactly as it landed. Approval needs no separate range object; whether the tool spec's scaffolded `# Diff <base>..<tip>` section still has a place anywhere is Q1.
+**Every merge onto the integration branch is reviewed.** The integration branch is what later lands on `main`, so its merge commits are the review surface: an MR's `/merge` arrives as a merge onto integration, and the review anchors to that `# Review Merge-Commit` heading with its per-parent diff subsections — the branch delta exactly as it landed. Approval needs no separate range object, and the tool spec's scaffolded `# Diff <base>..<tip>` section has no successor: an **open review** — a bare `# Review` file collecting reviewer-added artifacts — serves pre-merge conversation and the continuous track's since-last-review scaffold instead.
 
 **Approval is a verdict in a submitted review.** `- Verdict-reached-by: <Name> <<email>>; Approved` inside a `.review` whose object section names the covered SHAs. Approval covers exactly those objects — the MR design's "approvals pin a SHA" falls out of the format's zero-implicit-scope goal rather than needing its own rule. New author commits after the covered tip void the approval; conversation-only review commits and clean target-update merges do not (recognition shared with the MR design's O1/O3). For the `review-gate`, the covered object is always a merge commit itself — what lands is what was judged, and a redone integrator merge asks for a fresh approval. Other reviews carry the conversation, not the gate.
 
@@ -24,7 +24,7 @@ The `.review` format spec ([`../docs/spec/dot-review-format.md`](../docs/spec/do
 
 **The gate is a branch-protection workflow.** The Python rewrite's hook engine — branch router mapping glob patterns to workflows — gains a `review-gate` workflow alongside no-direct-push and linear-history: a push updating a protected branch must be a merge whose history contains a submitted `.review` approving the merged tip, from an eligible approver. This replaces the tool spec's "planned `review-gate` hook" sketch, which scanned notes refs; the in-tree model means the gate reads review commits instead. Kernel-style trailer recognition can stay as a compatibility signal.
 
-**Python surfaces.** The format spec is language-neutral and survives as-is. The tool spec is bound to the Go bubbletea TUI and gets superseded rather than ported: the click CLI scaffolds a `.review` file for the branch delta and hands it to `$EDITOR`, and `gitflower review submit` commits it under `reviews/…`; the FastAPI web UI renders `.review` files read-only in the repo browser and the MR detail view (MR design O7). A TUI is a later possibility, not a rewrite target. The editor-based flow doubles as the agent flow — the format was designed to be written and read by LLMs without specialist tooling, so an agent reviews by appending events to the scaffold and submitting.
+**Python surfaces.** The format spec is language-neutral and survives as-is. The tool spec is bound to the Go bubbletea TUI and gets superseded by a fresh, smaller spec rather than rewritten in place: the click CLI scaffolds either a scoped review of a merge commit (complete diff sections, the gate's approval object) or an empty open review for exploratory and continuous work, hands it to `$EDITOR`, and `gitflower review submit` commits it under `reviews/…`; the FastAPI web UI renders `.review` files read-only in the repo browser and the MR detail view (MR design O7). A TUI is a later possibility, not a rewrite target. The editor-based flow doubles as the agent flow — the format was designed to be written and read by LLMs without specialist tooling, so an agent reviews by appending events to the scaffold and submitting.
 
 **Issues cross-over.** `## Issue` subsections stay review-scoped: they live and die with the review conversation. An issue that outlives the MR is promoted into an `issues/` file via the issues-view flow (a branch carrying the new file), and the review-side subsection gets resolved with a comment pointing at it.
 
@@ -44,17 +44,9 @@ The pattern library describes review twice, and the two disagree with each other
 
 ## Open questions
 
-### Q1 — Whether the diff-range section survives, and its shape
-
-With review centered on the integration branch's merge commits, approval never needs a range object — the `# Merge-Commit` per-parent diffs cover the landed delta. What may still want one: pre-merge conversation on an MR whose integrator merge does not exist yet, and the continuous track's since-last-review scaffold. If the section stays, its shape is open — heading syntax, whether the three-dot merge-base form is allowed or the scaffolder resolves it to explicit two-dot OIDs, and how it composes with per-commit sections in one file. It has to fit the merge-centric flow, not compete with it.
-
 ### Q3 — Who is an eligible approver
 
 Reuse the allowed-users mechanism from the existing branch-protection workflows, a dedicated approver list per protected branch, or any committer who is not the MR author? Whether author self-approval is refused by the gate or merely surfaced belongs here too.
-
-### Q5 — Fate of `gitflower-review.md`
-
-Whether the tool spec is rewritten in place for the Python surfaces or marked superseded with a fresh, smaller spec. Bound up with which TUI-era features (read-rate pacing, dwell tracking, walk mode) keep a home in the format after the tool that produced them is gone — the event shapes cost nothing to keep, but spec text describing dead tooling misleads.
 
 ### Q6 — Fate of `gitflower review merge` and `[Review]` merges
 
@@ -62,12 +54,12 @@ The tool spec's `review merge` subcommand and its `[Review]`-merge base-ref dete
 
 ## Tasks
 
-- [ ] Decide Q1 — whether the diff-range section survives the merge-centric flow, and its shape
+- [x] Q1: no diff-range section — open reviews serve pre-merge conversation and the continuous scaffold
 - [ ] Spec the `reviews/…` submission-branch flow and the all-findings-resolved gate for the integration→`main` merge
 - [x] Rewrite the *Storage* and *Multi-reviewer merge* sections of `dot-review-format.md` tree-first, demoting notes to draft state
 - [ ] Spec the append-only merge semantics in `dot-review-format.md` (`merge=union` baseline, renormalizing renderers, the adjacent-subsection hazard)
 - [ ] Spec the `review-gate` workflow in the hook engine, including approval-staleness recognition shared with the MR design
-- [ ] Supersede or rewrite `gitflower-review.md` for the click CLI + editor flow (Q5)
+- [ ] Write the fresh spec superseding `gitflower-review.md`: click CLI + `$EDITOR` flow, scoped-merge and open-review scaffolds (Q5 decided: supersede)
 - [ ] `.review` rendering in the web UI (read-only; joins the MR detail view, MR design O7)
 - [x] Editorial pass over `dot-review-format.md` (typos: "gitfßlower", "Loosley", "determin", "hierachy")
 - [ ] Redirect `work/feature/review-cli` tree-first: notes persistence demotes to draft, `gitflower review submit` added
