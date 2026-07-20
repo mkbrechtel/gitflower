@@ -172,23 +172,37 @@ def test_hidden_branches_leave_the_graph(folders):
     assert "archive/old-thing" not in born.values()
 
 
-def test_commit_detail_patch(seeded):
+def test_single_parent_commit_is_side_by_side(seeded):
+    """One parent, one column — the same shape a merge gets, not a patch."""
     repo = gitread.open_repo(seeded, "app.git")
     tip = gitread.branches(repo)
     sha = [b for b in tip if b["name"] == "side"][0]["sha"]
-    detail = gitread.commit_detail(repo, sha)
-    assert "+side.txt" in detail["patch"]
+    detail = gitread.diff_detail(repo, sha)
+    (column,) = detail["columns"]
+    assert column["index"] == 1
+    assert column["stats"] == {"files_changed": 1, "additions": 1, "deletions": 0}
     (added,) = detail["files"]
-    assert added["path"] == "side.txt" and added["status"] == "A"
-    assert added["additions"] == 1 and added["deletions"] == 0
-    assert not added["binary"] and "+side.txt" in added["patch"]
-    assert detail["stats"] == {"files_changed": 1, "additions": 1, "deletions": 0}
+    assert added["path"] == "side.txt" and added["statuses"] == ["A"]
+    assert added["parent_counts"] == [{"additions": 1, "deletions": 0}]
+    assert not added["binary"]
+    (row,) = added["rows"]
+    assert row["result_text"] == "side.txt" and row["cells"][0]["status"] == "absent"
+    assert not row["merge_authored"]  # one column can never be merge-authored
     assert detail["committer"] == detail["author"]
+
+
+def test_root_commit_gets_an_empty_tree_column(seeded):
+    """No parent still means one column — the empty tree the commit grew from."""
+    repo = gitread.open_repo(seeded, "app.git")
     root = gitread.commits(repo)[-1]
-    root_detail = gitread.commit_detail(repo, root["sha"])
-    assert root_detail["parents"] == []
-    assert "+linear-0.txt" in root_detail["patch"]  # diff against the empty tree
-    assert [f["status"] for f in root_detail["files"]] == ["A"]
+    detail = gitread.diff_detail(repo, root["sha"])
+    assert detail["parents"] == []
+    (column,) = detail["columns"]
+    assert column["index"] is None and column["sha"] == ""
+    assert [f["statuses"] for f in detail["files"]] == [["A"]]
+    rows = detail["files"][0]["rows"]
+    assert all(c["status"] == "absent" for r in rows if r["kind"] == "line" for c in r["cells"])
+    assert not any(r["merge_authored"] for r in rows)
 
 
 def test_open_repo_validates_path(repos_dir):
@@ -248,9 +262,9 @@ def _find(repo, subject):
 
 def test_merge_detail_full_taxonomy(merged):
     repo = gitread.open_repo(merged, "app.git")
-    detail = gitread.merge_detail(repo, _find(repo, "merge feature")["sha"])
-    assert len(detail["parent_commits"]) == 2
-    assert {p["subject"] for p in detail["parent_commits"]} == {"timeout tweak", "logging work"}
+    detail = gitread.diff_detail(repo, _find(repo, "merge feature")["sha"])
+    assert [c["index"] for c in detail["columns"]] == [1, 2]
+    assert [c["sha"] for c in detail["columns"]] == detail["parents"]
     files = {f["path"]: f for f in detail["files"]}
     assert set(files) == {"app.py", "common.txt", "feature.txt"}
 
@@ -294,37 +308,43 @@ def test_merge_detail_full_taxonomy(merged):
     assert [c["status"] for c in helper["cells"]] == ["removed", "absent"]
     assert not helper["merge_authored"]
     # per-parent stats both non-empty for this hand-resolved merge
-    assert all(s["files_changed"] for s in detail["parent_stats"])
+    assert all(s["files_changed"] for s in [c["stats"] for c in detail["columns"]])
 
 
 def test_merge_taking_one_side_reports_empty_parent_diff(merged):
     repo = gitread.open_repo(merged, "app.git")
-    detail = gitread.merge_detail(repo, _find(repo, "take topic")["sha"])
-    assert detail["parent_stats"][1] == {"files_changed": 0, "additions": 0, "deletions": 0}
+    detail = gitread.diff_detail(repo, _find(repo, "take topic")["sha"])
+    assert [c["stats"] for c in detail["columns"]][1] == {"files_changed": 0, "additions": 0, "deletions": 0}
     (topic,) = detail["files"]
     assert topic["path"] == "topic.txt" and topic["statuses"] == ["A", "="]
 
 
-def test_merge_detail_rejects_non_merges(merged):
+def test_non_merges_render_through_the_same_path(merged):
+    """There is no "not a merge commit" rejection any more — one view fits all."""
     repo = gitread.open_repo(merged, "app.git")
-    with pytest.raises(gitread.GitReadError, match="not a merge commit"):
-        gitread.merge_detail(repo, _find(repo, "base")["sha"])
+    detail = gitread.diff_detail(repo, _find(repo, "base")["sha"])
+    assert len(detail["columns"]) == 1 and detail["diff_parent"] is None
 
 
-def test_commit_detail_against_chosen_parent(merged):
+def test_parent_selection_narrows_to_one_column(merged):
+    """?parent=N keeps the side-by-side view and drops it to that one column."""
     repo = gitread.open_repo(merged, "app.git")
     sha = _find(repo, "merge feature")["sha"]
-    vs1 = gitread.commit_detail(repo, sha, parent=1)
-    assert vs1["diff_parent"] == 1
+    vs1 = gitread.diff_detail(repo, sha, parent=1)
+    assert vs1["diff_parent"] == 1 and [c["index"] for c in vs1["columns"]] == [1]
     assert {f["path"] for f in vs1["files"]} == {"app.py", "common.txt", "feature.txt"}
-    vs2 = gitread.commit_detail(repo, sha, parent=2)
-    assert vs2["diff_parent"] == 2
+    assert all(len(f["statuses"]) == 1 for f in vs1["files"])
+    vs2 = gitread.diff_detail(repo, sha, parent=2)
+    assert vs2["diff_parent"] == 2 and [c["index"] for c in vs2["columns"]] == [2]
     assert {f["path"] for f in vs2["files"]} == {"app.py", "common.txt"}
-    assert gitread.commit_detail(repo, sha)["diff_parent"] == 1  # default: parent 1
+    # narrowed to one column, nothing reads as merge-authored
+    assert not any(r["merge_authored"] for f in vs2["files"] for r in f["rows"])
+    both = gitread.diff_detail(repo, sha)
+    assert both["diff_parent"] is None and len(both["columns"]) == 2
     with pytest.raises(gitread.GitReadError, match="no such parent: 3"):
-        gitread.commit_detail(repo, sha, parent=3)
+        gitread.diff_detail(repo, sha, parent=3)
     with pytest.raises(gitread.GitReadError, match="no such parent: 2"):
-        gitread.commit_detail(repo, _find(repo, "base")["sha"], parent=2)
+        gitread.diff_detail(repo, _find(repo, "base")["sha"], parent=2)
 
 
 def test_octopus_merge_gets_a_column_per_parent(merged, tmp_path):
@@ -344,8 +364,8 @@ def test_octopus_merge_gets_a_column_per_parent(merged, tmp_path):
     git(work, "push", "origin", "main")
 
     repo = gitread.open_repo(merged, "org/team/lib.git")
-    detail = gitread.merge_detail(repo, _find(repo, "octopus")["sha"])
-    assert len(detail["parent_commits"]) == 3
+    detail = gitread.diff_detail(repo, _find(repo, "octopus")["sha"])
+    assert len(detail["columns"]) == 3
     files = {f["path"]: f for f in detail["files"]}
     assert files["b1.txt"]["statuses"] == ["A", "=", "A"]
     assert files["b2.txt"]["statuses"] == ["A", "A", "="]

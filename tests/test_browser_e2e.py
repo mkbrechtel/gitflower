@@ -154,9 +154,9 @@ def test_theme_palette_is_active(browser, server):
     assert accent  # the palette custom properties are live
 
 
-PATCH_WHITE_SPACE = (
+DIFF_WHITE_SPACE = (
     "const v = document.querySelector('gf-view');"
-    "const p = v && v.shadowRoot && v.shadowRoot.querySelector('pre.patch');"
+    "const p = v && v.shadowRoot && v.shadowRoot.querySelector('table.diff td');"
     "return p ? getComputedStyle(p).whiteSpace : null"
 )
 
@@ -175,12 +175,12 @@ def test_full_width_and_wrap_toggle(browser, server):
         " === document.documentElement.clientWidth"
     )
 
-    # a commit's patch soft-wraps by default
+    # a commit's side-by-side diff soft-wraps by default
     browser.execute_script(
         "document.querySelector('gf-view').shadowRoot.querySelector('.graph-sha').click()"
     )
     WebDriverWait(browser, 5).until(
-        lambda d: d.execute_script(PATCH_WHITE_SPACE) == "pre-wrap"
+        lambda d: d.execute_script(DIFF_WHITE_SPACE) == "pre-wrap"
     )
 
     # the JS-revealed toggle switches to horizontal scrolling…
@@ -188,9 +188,9 @@ def test_full_width_and_wrap_toggle(browser, server):
         "const root = document.querySelector('gf-view').shadowRoot;"
         "root.querySelector('.wrap-toggle input').click()"
     )
-    WebDriverWait(browser, 5).until(lambda d: d.execute_script(PATCH_WHITE_SPACE) == "pre")
+    WebDriverWait(browser, 5).until(lambda d: d.execute_script(DIFF_WHITE_SPACE) == "pre")
 
     # …and the choice survives a full page load
     browser.refresh()
-    WebDriverWait(browser, 5).until(lambda d: d.execute_script(PATCH_WHITE_SPACE) == "pre")
+    WebDriverWait(browser, 5).until(lambda d: d.execute_script(DIFF_WHITE_SPACE) == "pre")
     browser.execute_script("localStorage.removeItem('gf-wrap')")

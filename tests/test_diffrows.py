@@ -1,9 +1,9 @@
-"""The merge side-by-side row alignment — one test per taxonomy variant.
+"""The side-by-side row alignment — one test per taxonomy variant.
 
 Hunks are written by hand in the 0-context shape gitread._patch_hunks emits,
 so every case is exact and independent of git."""
 
-from gitflower import mergerows
+from gitflower import diffrows
 
 
 def hunk(new_start: int, new_lines: int, *lines: tuple) -> dict:
@@ -56,7 +56,7 @@ P2_HUNKS = [
 
 
 def build_example(full: bool = False) -> list[dict]:
-    return mergerows.build(RESULT, [P1_HUNKS, P2_HUNKS], full=full)["rows"]
+    return diffrows.build(RESULT, [P1_HUNKS, P2_HUNKS], full=full)["rows"]
 
 
 def test_every_input_line_appears_exactly_once_per_column():
@@ -119,21 +119,21 @@ def test_similarity_pairing_beats_positional():
 
 
 def test_unchanged_parent_contributes_all_same_cells():
-    rows = mergerows.build(["a", "b"], [[], [hunk(1, 1, ("+", -1, 1, "a"))]])["rows"]
+    rows = diffrows.build(["a", "b"], [[], [hunk(1, 1, ("+", -1, 1, "a"))]])["rows"]
     assert statuses(rows[0]) == ["same", "absent"]
     assert statuses(rows[1]) == ["same", "same"]
 
 
 def test_file_deleted_by_the_merge_is_all_only_rows():
     hunks = [hunk(0, 0, ("-", 1, -1, "gone"), ("-", 2, -1, "lines"))]
-    rows = mergerows.build([], [hunks, hunks])["rows"]
+    rows = diffrows.build([], [hunks, hunks])["rows"]
     assert [r["kind"] for r in rows] == ["only", "only"]
     assert all(r["merge_authored"] for r in rows)
 
 
 def test_long_same_runs_fold_with_context():
     lines = [f"line {i}" for i in range(1, 31)]
-    rows = mergerows.build(lines, [[], []])["rows"]
+    rows = diffrows.build(lines, [[], []])["rows"]
     kinds = [r["kind"] for r in rows]
     assert kinds == ["line"] * 3 + ["fold"] + ["line"] * 3
     fold = rows[3]
@@ -142,22 +142,22 @@ def test_long_same_runs_fold_with_context():
 
 def test_short_runs_and_full_do_not_fold():
     lines = [f"line {i}" for i in range(1, 11)]  # exactly MIN_FOLD: stays whole
-    assert all(r["kind"] == "line" for r in mergerows.build(lines, [[], []])["rows"])
+    assert all(r["kind"] == "line" for r in diffrows.build(lines, [[], []])["rows"])
     long_lines = [f"line {i}" for i in range(1, 31)]
-    full = mergerows.build(long_lines, [[], []], full=True)["rows"]
+    full = diffrows.build(long_lines, [[], []], full=True)["rows"]
     assert len(full) == 30 and all(r["kind"] == "line" for r in full)
 
 
 def test_changed_rows_break_a_fold():
     lines = [f"line {i}" for i in range(1, 31)]
     hunks = [hunk(15, 1, ("-", 15, -1, "old 15"), ("+", -1, 15, "line 15"))]
-    rows = mergerows.build(lines, [hunks, []])["rows"]
+    rows = diffrows.build(lines, [hunks, []])["rows"]
     changed = next(r for r in rows if r["result_no"] == 15)
     assert statuses(changed) == ["changed", "same"]
     assert sum(1 for r in rows if r["kind"] == "fold") == 2  # folds on both sides
 
 
 def test_oversized_files_truncate():
-    lines = [f"line {i}" for i in range(mergerows.MAX_ROWS + 2)]
-    laid_out = mergerows.build(lines, [[], []], full=True)
+    lines = [f"line {i}" for i in range(diffrows.MAX_ROWS + 2)]
+    laid_out = diffrows.build(lines, [[], []], full=True)
     assert laid_out["truncated"] and laid_out["rows"] == []
