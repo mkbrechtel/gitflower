@@ -334,3 +334,27 @@ def test_a_trailer_on_an_inner_merge_beats_the_outer_shape(repo):
     git(work, "merge", "--no-ff", "integration/topic", "-m", "Merge integration/topic into main")
     after = git(work, "rev-parse", "HEAD").stdout.strip()
     assert mr.concluding_merges(r, before, after) == {request: inner}
+
+
+def test_a_request_can_be_signed_without_git_configuration(repo, monkeypatch):
+    """A container that installed the package has no user.name; the
+    environment git itself reads is enough to ask for a merge."""
+    r, work, _request = repo
+    git(work, "checkout", "-q", "-b", "feature/unconfigured", "main")
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Someone")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "someone@example.invalid")
+    oid = mr.create_request(r, "feature/unconfigured", "asked without config")
+    assert r.get(oid).author.name == "Someone"
+
+
+def test_signing_says_what_is_missing(repo, monkeypatch):
+    r, work, _request = repo
+    for name in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        type(r), "default_signature",
+        property(lambda self: (_ for _ in ()).throw(KeyError("user.name"))),
+    )
+    git(work, "checkout", "-q", "-b", "feature/nameless", "main")
+    with pytest.raises(mr.MRError, match="no git identity"):
+        mr.create_request(r, "feature/nameless", "who am I")

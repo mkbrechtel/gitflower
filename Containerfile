@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential debhelper dh-python pybuild-plugin-pyproject \
         python3-all python3-setuptools \
         python3-pytest python3-fastapi python3-click python3-pygit2 \
-        python3-yaml python3-httpx git lintian \
+        python3-yaml python3-textual python3-jmespath python3-httpx git lintian \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src/gitflower
 COPY . .
