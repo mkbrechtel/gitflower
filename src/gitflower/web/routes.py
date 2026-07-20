@@ -4,7 +4,7 @@ Repo paths nest (`org/team/app.git`), which Starlette's `{param:path}`
 convertor expresses directly — it may sit mid-route, so `.git`-anchored
 sub-routes (tree, commit, smart-HTTP) are ordinary typed routes and land in
 the OpenAPI schema with their response models. Every endpoint builds its
-typed model (web.models); respond() serves it as JSON, page, or fragment.
+typed model (gitflower.models); respond() serves it as JSON, page, or fragment.
 
 Every path component is slug-validated before it touches the filesystem —
 a traversal attempt fails validation and 404s.
@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
 
-from gitflower import gitread, graph, issues as issuestore
+from gitflower import gitread, graph, issues as issuestore, models
 from gitflower.config import (
     ConfigError,
     GlobalConfig,
@@ -24,7 +24,7 @@ from gitflower.config import (
     load_repo_config,
 )
 from gitflower.slug import SlugError, validate_org_folder, validate_repo_path
-from gitflower.web import fragments, models, smarthttp
+from gitflower.web import fragments, smarthttp
 from gitflower.web.respond import respond
 
 GRAPH_LIMIT = 400
