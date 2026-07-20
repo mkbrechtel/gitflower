@@ -8,11 +8,12 @@ in gitflower.css — custom properties pierce the shadow boundary; rules don't.
 
 import yaml
 
+from gitflower.web.chrome import CHROME_CSS, crumbs as _crumbs, repo_header, repo_url as _repo_url
 from gitflower.web.html import esc, view
 
 # style snippets shared by several fragments (still emitted per-fragment —
 # each shadow root is its own scope)
-BASE_CSS = """
+BASE_CSS = CHROME_CSS + """
 :host { display: block; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -24,7 +25,6 @@ table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 th { text-align: left; color: var(--fg-dim); font-weight: 500; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
 th, td { padding: 0.45rem 0.8rem 0.45rem 0; border-bottom: 1px solid var(--border); }
 .dim { color: var(--fg-dim); font-size: 0.85rem; }
-.crumbs { color: var(--fg-dim); margin: 0 0 1rem; }
 .empty { color: var(--fg-dim); font-style: italic; }
 pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1rem; overflow-x: auto; font-family: var(--mono); font-size: 0.82rem; line-height: 1.45; }
 """
@@ -36,17 +36,6 @@ def _size(n: int) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n / 1:.1f} {unit}"
         n /= 1024
     return f"{n} B"
-
-
-def _repo_url(path: str) -> str:
-    return "/repos/" + "/".join(esc(p) for p in path.split("/"))
-
-
-def _crumbs(*parts: tuple[str, str | None]) -> str:
-    out = []
-    for label, url in parts:
-        out.append(f'<a href="{url}">{esc(label)}</a>' if url else esc(label))
-    return f'<p class="crumbs">{" / ".join(out)}</p>'
 
 
 def _repo_table(repos: list[dict]) -> str:
@@ -218,36 +207,61 @@ def _graph_svg(
 """
 
 
-def repo(data: dict) -> str:
-    url = _repo_url(data["path"])
-    tips: dict[str, list[str]] = {}
-    for branch in data["branches"]:
-        tips.setdefault(branch["sha"], []).append(branch["name"])
-    branch_rows = "".join(
+def _branch_table(url: str, branches: list[dict]) -> str:
+    if not branches:
+        return '<p class="empty">Empty repository — push something first.</p>'
+    rows = "".join(
         f'<tr><td><a href="{url}/tree/{esc(b["name"])}/">{esc(b["name"])}</a>'
         f'{" <span class=dim>(hidden)</span>" if b["hidden"] else ""}</td>'
         f'<td><a href="{url}/commit/{esc(b["sha"])}"><code>{esc(b["short"])}</code></a></td>'
         f'<td class="dim">{esc(b["date"][:10])}</td>'
         f"<td>{esc(b['subject'])}</td></tr>"
-        for b in data["branches"]
+        for b in branches
     )
-    branches = (
+    return (
         "<table><thead><tr><th>branch</th><th>tip</th><th>last commit</th>"
-        f'<th>subject</th></tr></thead><tbody>{branch_rows}</tbody></table>'
-        if data["branches"]
-        else '<p class="empty">Empty repository — push something first.</p>'
+        f'<th>subject</th></tr></thead><tbody>{rows}</tbody></table>'
     )
+
+
+def repo(data: dict) -> str:
+    """The Commits tab: the graph, which is what a repository looks like."""
+    url = _repo_url(data["path"])
+    tips: dict[str, list[str]] = {}
+    for branch in data["branches"]:
+        tips.setdefault(branch["sha"], []).append(branch["name"])
     body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], None))}
+{repo_header(data["path"], "commits")}
 <h1>{esc(data["path"])}</h1>
-<h2>Graph</h2>
 {_graph_svg(data["graph"], url, tips, data["full"], data["show_hidden"], data["hidden_count"])}
-<h2>Branches</h2>
-{branches}
 <h2>Clone (read-only)</h2>
 <pre>git clone {esc(data["clone_url"])}</pre>
 """
     return view(BASE_CSS + GRAPH_CSS, body)
+
+
+def branches(data: dict) -> str:
+    """The Branches tab: the branch table the graph page used to carry."""
+    url = _repo_url(data["path"])
+    hidden_note = ""
+    if data["hidden_count"]:
+        if data["show_hidden"]:
+            hidden_note = (
+                f'<p class="dim"><a href="{url}/branches/">hide '
+                f'{data["hidden_count"]} hidden branches</a></p>'
+            )
+        else:
+            hidden_note = (
+                f'<p class="dim"><a href="{url}/branches/?hidden=1">show '
+                f'{data["hidden_count"]} hidden branches</a></p>'
+            )
+    body = f"""
+{repo_header(data["path"], "branches")}
+<h1>Branches <span class="dim">{len(data["branches"])}</span></h1>
+{_branch_table(url, data["branches"])}
+{hidden_note}
+"""
+    return view(BASE_CSS, body)
 
 
 TREE_CSS = """
@@ -277,7 +291,7 @@ def tree(data: dict) -> str:
                 f'<td class="dim">{entry["mode"]}</td><td class="dim">{_size(entry["size"])}</td></tr>'
             )
     body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], url), (data["ref"], f"{url}/tree/{ref}/"), (subpath or ".", None))}
+{repo_header(data["path"], "code", (data["ref"], f"{url}/tree/{ref}/"), (subpath or ".", None))}
 <h1>{esc(data["path"])} <span class="dim">@ {ref}</span></h1>
 <table><thead><tr><th>name</th><th>mode</th><th>size</th></tr></thead>
 <tbody>{"".join(rows)}</tbody></table>
@@ -304,7 +318,7 @@ def blob(data: dict) -> str:
         else:
             issue_badge = f'<p class="dim">this file is issue {esc(link["title"])} (no id)</p>'
     body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], url), (data["ref"], f"{url}/tree/{ref}/"), (data["subpath"], None))}
+{repo_header(data["path"], "code", (data["ref"], f"{url}/tree/{ref}/"), (data["subpath"], None))}
 <h1>{esc(data["subpath"])} <span class="dim">@ {ref}</span></h1>
 <p class="dim">{_size(data["size"])} · <a href="{raw}">raw</a></p>
 {issue_badge}
@@ -609,7 +623,7 @@ def commit(data: dict) -> str:
         or '<p class="empty">No changes to display.</p>'
     )
     body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], url), (data["short"], None))}
+{repo_header(data["path"], "commits", (data["short"], None))}
 <h1>{esc(data["subject"])}</h1>
 {_commit_meta(url, data, parents_html)}
 {_message_body(data)}
@@ -680,7 +694,7 @@ def issues(data: dict) -> str:
         else '<p class="empty">No issues found. Issues are markdown files under the issues directory.</p>'
     )
     body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], url), ("issues", None))}
+{repo_header(data["path"], "issues")}
 <h1>{esc(data["path"])} <span class="dim">issues</span></h1>
 <form class="qform" method="get" action="{url}/issues/">
 <input type="text" name="q" value="{esc(q)}" placeholder="JMESPath, e.g. [?frontmatter.status=='open']">{scope}
@@ -728,7 +742,7 @@ def issue(data: dict) -> str:
         else '<p class="empty">No front matter.</p>'
     )
     body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], url), ("issues", f"{url}/issues/"), (data["title"], None))}
+{repo_header(data["path"], "issues", (data["title"], None))}
 <h1>{esc(data["title"])}</h1>
 <p class="dim">id <code>{esc(data["id"] or "none")}</code> · showing {shown} at <code>{esc(data["shown_path"])}</code></p>
 <h2>Content</h2>
@@ -777,3 +791,133 @@ def not_found(data: dict) -> str:
 <p><a href="/repos/">Back to the repositories</a>.</p>
 """
     return view(BASE_CSS, body)
+
+
+MR_CSS = """
+.state { font-size: 0.72rem; padding: 0.1em 0.5em; border-radius: 10px; border: 1px solid; }
+.state-open { color: var(--accent); border-color: var(--accent); }
+.state-merged { color: var(--diff-add-fg); border-color: var(--diff-add-fg); }
+.state-rejected { color: var(--diff-del-fg); border-color: var(--diff-del-fg); }
+.state-closed, .state-superseded { color: var(--fg-dim); border-color: var(--border); }
+.meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1rem; margin: 0 0 1.2rem; font-size: 0.88rem; }
+.meta dt { color: var(--fg-dim); }
+.meta dd { margin: 0; }
+h1 .state { vertical-align: middle; margin-left: 0.5em; }
+"""
+
+
+def _state(state: str) -> str:
+    return f'<span class="state state-{esc(state)}">{esc(state)}</span>'
+
+
+def _mr_filter(url: str, active: str | None) -> str:
+    from gitflower.models import MR_STATES
+
+    tabs = [_tab("All", f"{url}/mrs/", active is None)]
+    tabs += [
+        _tab(s.capitalize(), f"{url}/mrs/?state={s}", active == s) for s in MR_STATES
+    ]
+    return f'<nav class="tabs">{"".join(tabs)}</nav>'
+
+
+def mr_list(data: dict) -> str:
+    url = _repo_url(data["path"])
+    rows = "".join(
+        f'<tr><td><a href="{url}/mrs/{esc(m["oid"])}"><code>{esc(m["short"])}</code></a></td>'
+        f'<td>{_state(m["state"])}</td>'
+        f'<td><a href="{url}/mrs/{esc(m["oid"])}">{esc(m["title"])}</a></td>'
+        + (
+            f'<td><a href="{url}/tree/{esc(m["source"])}/">{esc(m["source"])}</a></td>'
+            if m["source"]
+            else '<td class="dim">—</td>'
+        )
+        + f'<td class="dim">{esc(m["target"])}</td>'
+        + (
+            f'<td><a href="{url}/mrs/{esc(m["stacked_on"])}"><code>{esc(m["stacked_on"])}</code></a></td>'
+            if m["stacked_on"]
+            else "<td></td>"
+        )
+        + f'<td class="dim">{esc(m["date"][:10])}</td></tr>'
+        for m in data["mrs"]
+    )
+    table = (
+        "<table><thead><tr><th>mr</th><th>state</th><th>title</th><th>source</th>"
+        "<th>target</th><th>stacked on</th><th>opened</th></tr></thead>"
+        f'<tbody>{rows}</tbody></table>'
+        if data["mrs"]
+        else '<p class="empty">No merge requests. Open one with an empty commit: '
+        "<code>git commit --allow-empty -m &quot;MR: what this merges&quot;</code>.</p>"
+    )
+    body = f"""
+{repo_header(data["path"], "mrs")}
+<h1>Merge requests</h1>
+{_mr_filter(url, data.get("state"))}
+{table}
+"""
+    return view(BASE_CSS + TABS_CSS + MR_CSS, body)
+
+
+def _mr_resolution(url: str, data: dict) -> str:
+    if data["merge_oid"]:
+        merge = esc(data["merge_oid"])
+        return (
+            f'<h2>Resolution</h2><p>Merged by '
+            f'<a href="{url}/commit/{merge}"><code>{merge[:12]}</code></a>.</p>'
+        )
+    if data["resolution_kind"]:
+        return (
+            f'<h2>Resolution</h2><p>{esc(data["resolution_kind"])}</p>'
+            f'<pre>{esc(data["resolution_message"])}</pre>'
+        )
+    if data["superseded_by"]:
+        later = esc(data["superseded_by"])
+        return (
+            f'<h2>Resolution</h2><p>Superseded by '
+            f'<a href="{url}/mrs/{later}"><code>{later[:12]}</code></a> — '
+            "the branch asked again.</p>"
+        )
+    return '<h2>Resolution</h2><p class="empty">Open — nothing has concluded it yet.</p>'
+
+
+def mr_detail(data: dict) -> str:
+    url = _repo_url(data["path"])
+    source = (
+        f'<a href="{url}/tree/{esc(data["source"])}/">{esc(data["source"])}</a>'
+        if data["source"]
+        else '<span class="dim">no branch carries it any more</span>'
+    )
+    stacked = ""
+    if data["stacked_on"]:
+        base = esc(data["stacked_on"])
+        stacked = (
+            f'<dt>stacked on</dt><dd><a href="{url}/mrs/{base}">'
+            f"<code>{base[:12]}</code></a></dd>"
+        )
+    commit_rows = "".join(
+        f'<tr><td><a href="{url}/commit/{esc(c["sha"])}"><code>{esc(c["short"])}</code></a></td>'
+        f'<td>{esc(c["subject"])}</td><td class="dim">{esc(c["author"])}</td>'
+        f'<td class="dim">{esc(c["date"][:10])}</td></tr>'
+        for c in data["commits"]
+    )
+    commits = (
+        "<table><thead><tr><th>commit</th><th>subject</th><th>author</th><th>date</th>"
+        f'</tr></thead><tbody>{commit_rows}</tbody></table>'
+        if data["commits"]
+        else '<p class="empty">Nothing to merge — the target already has this work.</p>'
+    )
+    body = f"""
+{repo_header(data["path"], "mrs", (data["short"], None))}
+<h1>{esc(data["title"])} {_state(data["state"])}</h1>
+<dl class="meta">
+<dt>request</dt><dd><a href="{url}/commit/{esc(data["oid"])}"><code>{esc(data["oid"])}</code></a></dd>
+<dt>author</dt><dd>{esc(data["author"])} &lt;{esc(data["email"])}&gt; · {esc(data["date"])}</dd>
+<dt>source</dt><dd>{source}</dd>
+<dt>target</dt><dd>{esc(data["target"] or "the mainline")}</dd>
+{stacked}
+</dl>
+{f"<pre>{esc(data['body'])}</pre>" if data["body"] else ""}
+{_mr_resolution(url, data)}
+<h2>The line of work <span class="dim">{len(data["commits"])} commits</span></h2>
+{commits}
+"""
+    return view(BASE_CSS + MR_CSS, body)

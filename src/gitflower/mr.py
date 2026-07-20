@@ -208,8 +208,7 @@ def scan_branches(
         if trunk_tip is not None:
             walker.hide(trunk_tip.id)
         for commit in walker:
-            subject, _ = _subject_and_body(commit.message)
-            if parse_subject(subject) is None:
+            if not is_request(repo, commit):
                 continue
             oid = str(commit.id)
             carriers.setdefault(oid, []).append(name)
@@ -219,9 +218,20 @@ def scan_branches(
     # too, but does not offer them; without this they would look like one
     # branch asking twice, which is what supersede means.
     owners = {oid: branch for branch, oid in offered.items()}
-    return {
-        oid: owners.get(oid, branches[0]) for oid, branches in carriers.items()
-    }
+    # A request no branch offers has none: the branch that asked is gone, and
+    # the branches that merely carry it are asking for something else.
+    return {oid: owners.get(oid) for oid in carriers}
+
+
+def is_request(repo: pygit2.Repository, commit: pygit2.Commit) -> bool:
+    """An MR commit is empty, by construction and by definition.
+
+    The subject alone is not enough: a work commit that happens to be
+    described as `MR: …` changes the tree, and asking for something is not
+    the same as doing it.
+    """
+    subject, _ = _subject_and_body(commit.message)
+    return parse_subject(subject) is not None and _is_empty(repo, commit)
 
 
 def load(
@@ -240,7 +250,7 @@ def load(
         return None
     subject_line, body = _subject_and_body(commit.message)
     subject = parse_subject(subject_line)
-    if subject is None:
+    if subject is None or not _is_empty(repo, commit):
         return None
     oid = str(commit.id)
     request = MergeRequest(
@@ -312,30 +322,58 @@ def _nearest_below(repo: pygit2.Repository, candidates: list[MergeRequest]) -> M
     )
 
 
-def _apply_supersede(repo: pygit2.Repository, requests: list[MergeRequest]) -> None:
+def _same_line(repo: pygit2.Repository, newer: str, older: str) -> bool:
+    """Is `older` on `newer`'s own line of work?
+
+    Following first parents only, and refusing to cross a merge. Work that
+    arrived through a merge is work someone else did on their own line; a
+    rework is what happens when you keep committing on yours.
+    """
+    commit = repo.get(newer)
+    while commit is not None and isinstance(commit, pygit2.Commit):
+        if str(commit.id) == older:
+            return True
+        if len(commit.parents) != 1:
+            return False
+        commit = commit.parents[0]
+    return False
+
+
+def _apply_supersede(
+    repo: pygit2.Repository, requests: list[MergeRequest], carriers: dict[str, str | None]
+) -> None:
     """A branch offers one request at a time: its newest.
 
     Rework supersedes — the request never moves, so asking again means a new
-    MR commit on the same branch, and the older one is spent. Two requests on
-    *different* branches are a stack instead: both are meant to merge, the
-    upper one on top of the lower. The branch is what tells them apart, so a
-    request whose branch is gone (only its ref remains) is never guessed at.
+    MR commit, and the older one is spent. Three cases have to stay apart,
+    and each clause below separates one of them:
+
+    * a **rework**: the branch has moved past this request to a newer one on
+      the same line, and nothing else offers it;
+    * a **stack**: another branch is built on top, but this request is still
+      the one its own branch offers, so it is still being asked for;
+    * **history**: an old request that merged into an integration branch is
+      carried by everything built since. It arrived through a merge, so it is
+      not on the newer request's line and supersedes nothing.
     """
+    offered = {r.branch for r in requests if r.branch}
     for request in requests:
-        if request.state != OPEN or request.branch is None:
-            continue
+        if request.state != OPEN or request.branch is not None:
+            continue  # a request its own branch still offers is not spent
         newer = [
             other
             for other in requests
             if other.oid != request.oid
             and other.state == OPEN
-            and other.branch == request.branch
-            and _reaches(repo, repo.get(other.oid), request.oid)
+            and other.branch in offered
+            and _same_line(repo, other.oid, request.oid)
         ]
         if not newer:
             continue
+        replacement = _nearest_above(repo, newer)
         request.state = SUPERSEDED
-        request.superseded_by = _nearest_above(repo, newer).oid
+        request.superseded_by = replacement.oid
+        request.branch = replacement.branch  # the branch that moved on
 
 
 def _apply_stacking(repo: pygit2.Repository, requests: list[MergeRequest]) -> None:
@@ -366,7 +404,7 @@ def discover(
         request = load(repo, oid, branch=on_branches.get(oid), mainline=mainline)
         if request is not None:
             requests.append(request)
-    _apply_supersede(repo, requests)
+    _apply_supersede(repo, requests, on_branches)
     _apply_stacking(repo, requests)
     requests.sort(key=lambda r: r.date, reverse=True)
     return requests
@@ -393,13 +431,39 @@ def is_ready(repo: pygit2.Repository, branch: str, base: str) -> MergeRequest | 
         walker.hide(base_tip.id)
     above: list[pygit2.Commit] = []
     for commit in walker:
-        subject, _ = _subject_and_body(commit.message)
-        if parse_subject(subject) is not None:
+        if is_request(repo, commit):
             if any(not _is_empty(repo, c) for c in above):
                 return None
             return load(repo, str(commit.id), branch=branch, mainline=base)
         above.append(commit)
     return None
+
+
+def line_of_work(
+    repo: pygit2.Repository, request_oid: str, *, mainline: str | None = None, limit: int = 200
+) -> list[dict]:
+    """The commits a request is asking to merge, newest first.
+
+    Everything the request carries that the mainline does not — the work, not
+    the branch's whole history. A stacked request still lists the work below
+    it, because that is what merging it would bring in.
+    """
+    from gitflower.gitread import _commit_dict
+
+    request = repo.get(request_oid)
+    if request is None or not isinstance(request, pygit2.Commit):
+        return []
+    trunk = mainline or default_branch(repo)
+    trunk_tip = _tip(repo, trunk) if trunk else None
+    walker = repo.walk(request.id)
+    if trunk_tip is not None:
+        walker.hide(trunk_tip.id)
+    out = []
+    for commit in walker:
+        out.append(_commit_dict(commit))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _is_empty(repo: pygit2.Repository, commit: pygit2.Commit) -> bool:
@@ -521,8 +585,7 @@ def record_push(
     if old_commit is not None and isinstance(old_commit, pygit2.Commit):
         walker.hide(old_commit.id)
     for commit in walker:
-        subject, _ = _subject_and_body(commit.message)
-        if parse_subject(subject) is None:
+        if not is_request(repo, commit):
             continue
         oid = str(commit.id)
         if _ref_target(repo, request_ref(oid)) is None:

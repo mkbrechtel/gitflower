@@ -28,7 +28,12 @@ SURFACES = {"__main__", "cli", "tui", "web", "review.tui"}
 VIEW_READS = {"branches", "commits", "born_on", "reachable", "diff_detail", "tree_entries"}
 
 # write paths: the web is read-only, and that is a property of the imports
-WRITE_MODULES = {"mr", "merge", "hooks", "review.submit"}
+WRITE_MODULES = {"merge", "hooks", "review.submit"}
+
+# mr holds both the read model and the writers, so the models layer imports
+# it for discovery and state — what it may never do is call a writer. That is
+# checked by name rather than by import.
+WRITE_CALLS = {"create_request", "create_resolution", "record_push", "install", "uninstall"}
 
 
 def module_name(path: Path) -> str:
@@ -110,6 +115,9 @@ def test_models_import_no_surface_and_no_writes(name, path, tree):
     names = imported(tree)
     assert not {i for i in names if is_surface(i)}, "models must not import a surface"
     assert not (names & WRITE_MODULES), "models is a read contract — no write modules"
+    for receiver in ("mr", "mrs", "merge", "hooks"):
+        called = calls_on(tree, receiver) & WRITE_CALLS
+        assert not called, f"models called {receiver}.{sorted(called)[0]}() — it only reads"
 
 
 @pytest.mark.parametrize("name,path,tree", ALL, ids=[m[0] for m in ALL])

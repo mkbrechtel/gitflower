@@ -114,7 +114,9 @@ def test_repo_detail_carries_graph_and_branches(client):
     data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
     tip = data["branches"][0]
     assert f'<a class="graph-sha" href="/repos/app.git/commit/' in page.text
-    assert f'<a href="/repos/app.git/commit/{tip["sha"]}"><code>{tip["short"]}</code></a>' in page.text
+    # the branch table is its own section now; the graph page keeps the graph
+    branches = client.get("/repos/app.git/branches/").text
+    assert f'<a href="/repos/app.git/commit/{tip["sha"]}"><code>{tip["short"]}</code></a>' in branches
     data = client.get("/repos/app.git", headers={"Accept": "application/json"}).json()
     # main pinned first, archive/retired hidden — both by default config
     assert [b["name"] for b in data["branches"]] == ["main", "merged", "work/feature/thing"]
@@ -142,7 +144,8 @@ def test_hidden_branches_expand_and_grey_out(client):
     assert rows["add binary"]["pinned"] is True
     assert rows["feature commit"]["pinned"] is False
     page = client.get("/repos/app.git?hidden=1")
-    assert "graph-dimmed" in page.text and "(hidden)" in page.text
+    assert "graph-dimmed" in page.text
+    assert "(hidden)" in client.get("/repos/app.git/branches/?hidden=1").text
 
 
 def test_graph_folds_and_full_unfolds(client):
