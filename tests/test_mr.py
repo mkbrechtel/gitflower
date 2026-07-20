@@ -301,3 +301,60 @@ def test_gitread_counts_the_same_namespace(repo):
     r.references.create(mr.merge_ref(request), pygit2.Oid(hex=request))
     info = gitread._scan_one(work.parent, work)
     assert info.mr_count == 1  # the merge ref is not a second request
+
+
+def test_the_innermost_merge_concludes(repo):
+    """A request is concluded by the merge that brought it in, not by every
+    later merge that happens to contain it. Work reaches an integration
+    branch first and the mainline afterwards; only the first one concluded
+    anything."""
+    r, work, request = repo
+    r.references.create(mr.request_ref(request), pygit2.Oid(hex=request))
+    before = str(r.references["refs/heads/main"].target)
+    git(work, "checkout", "-q", "-b", "integration/topic", "main")
+    git(work, "merge", "--no-ff", "feature/thing", "-m", "Merge feature/thing into integration")
+    inner = git(work, "rev-parse", "HEAD").stdout.strip()
+    git(work, "checkout", "-q", "main")
+    git(work, "merge", "--no-ff", "integration/topic", "-m", "Merge integration/topic into main")
+    after = git(work, "rev-parse", "HEAD").stdout.strip()
+    assert mr.concluding_merges(r, before, after) == {request: inner}
+
+
+def test_a_trailer_on_an_inner_merge_beats_the_outer_shape(repo):
+    r, work, request = repo
+    r.references.create(mr.request_ref(request), pygit2.Oid(hex=request))
+    before = str(r.references["refs/heads/main"].target)
+    git(work, "checkout", "-q", "-b", "integration/topic", "main")
+    git(
+        work, "merge", "--no-ff", "feature/thing",
+        "-m", f"Merge feature/thing\n\n{mr.MERGE_REQUEST_TRAILER}: {request}",
+    )
+    inner = git(work, "rev-parse", "HEAD").stdout.strip()
+    git(work, "checkout", "-q", "main")
+    git(work, "merge", "--no-ff", "integration/topic", "-m", "Merge integration/topic into main")
+    after = git(work, "rev-parse", "HEAD").stdout.strip()
+    assert mr.concluding_merges(r, before, after) == {request: inner}
+
+
+def test_a_request_can_be_signed_without_git_configuration(repo, monkeypatch):
+    """A container that installed the package has no user.name; the
+    environment git itself reads is enough to ask for a merge."""
+    r, work, _request = repo
+    git(work, "checkout", "-q", "-b", "feature/unconfigured", "main")
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Someone")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "someone@example.invalid")
+    oid = mr.create_request(r, "feature/unconfigured", "asked without config")
+    assert r.get(oid).author.name == "Someone"
+
+
+def test_signing_says_what_is_missing(repo, monkeypatch):
+    r, work, _request = repo
+    for name in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        type(r), "default_signature",
+        property(lambda self: (_ for _ in ()).throw(KeyError("user.name"))),
+    )
+    git(work, "checkout", "-q", "-b", "feature/nameless", "main")
+    with pytest.raises(mr.MRError, match="no git identity"):
+        mr.create_request(r, "feature/nameless", "who am I")
