@@ -20,10 +20,12 @@ have been made but not yet pushed through a server that keeps refs, which is
 what a clone sees. See issues/in-tree-merge-requests.md for the design.
 """
 
+import os
 import re
 from dataclasses import dataclass, field
 
 import pygit2
+from pygit2.enums import SortMode
 
 MR_REF_PREFIX = "refs/mrs/"
 REQUEST = "request"
@@ -462,17 +464,53 @@ def line_of_work(
     request = repo.get(request_oid)
     if request is None or not isinstance(request, pygit2.Commit):
         return []
-    trunk = mainline or default_branch(repo)
-    trunk_tip = _tip(repo, trunk) if trunk else None
+    # Once a request has merged, the mainline contains it, and asking what it
+    # adds to the mainline answers nothing. What it brought in is what the
+    # target did not have when the merge was made — its first parent.
+    base = None
+    merged = _ref_target(repo, merge_ref(str(request.id)))
+    if merged:
+        merge = repo.get(merged)
+        if merge is not None and isinstance(merge, pygit2.Commit) and merge.parents:
+            base = merge.parents[0]
+    if base is None:
+        trunk = mainline or default_branch(repo)
+        base = _tip(repo, trunk) if trunk else None
     walker = repo.walk(request.id)
-    if trunk_tip is not None:
-        walker.hide(trunk_tip.id)
+    if base is not None:
+        walker.hide(base.id)
     out = []
     for commit in walker:
         out.append(_commit_dict(commit))
         if len(out) >= limit:
             break
     return out
+
+
+def _signature(
+    repo: pygit2.Repository, author: pygit2.Signature | None = None
+) -> pygit2.Signature:
+    """Who is asking, resolved the way git resolves it.
+
+    The environment wins over the configuration, as it does for `git commit`,
+    so a hook or a test harness that sets GIT_AUTHOR_NAME gets what it asked
+    for. libgit2's default signature reads the configuration only, and raises
+    where a repository has no identity at all — an unconfigured container,
+    say — so say plainly what is missing instead of surfacing a KeyError.
+    """
+    if author is not None:
+        return author
+    name = os.environ.get("GIT_AUTHOR_NAME") or os.environ.get("GIT_COMMITTER_NAME")
+    email = os.environ.get("GIT_AUTHOR_EMAIL") or os.environ.get("GIT_COMMITTER_EMAIL")
+    if name and email:
+        return pygit2.Signature(name, email)
+    try:
+        return repo.default_signature
+    except (KeyError, ValueError):
+        raise MRError(
+            "no git identity to sign the request with — set user.name and "
+            "user.email, or GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL"
+        )
 
 
 def _is_empty(repo: pygit2.Repository, commit: pygit2.Commit) -> bool:
@@ -506,7 +544,7 @@ def create_request(
     message = f"{prefix}: {title}\n"
     if body:
         message += f"\n{body.strip()}\n"
-    signature = author or repo.default_signature
+    signature = _signature(repo, author)
     oid = repo.create_commit(
         f"refs/heads/{branch}", signature, signature, message, tip.tree.id, [tip.id]
     )
@@ -531,7 +569,7 @@ def create_resolution(
     request = repo.get(request_oid)
     if request is None or not isinstance(request, pygit2.Commit):
         raise MRError(f"no such merge request: {request_oid}")
-    signature = author or repo.default_signature
+    signature = _signature(repo, author)
     message = f"{kind}: {reason.strip()}\n"
     oid = repo.create_commit(
         None, signature, signature, message, request.tree.id, [request.id]
@@ -546,12 +584,18 @@ def concluding_merges(repo: pygit2.Repository, old: str, new: str) -> dict[str, 
     gitflower helper writes one. Otherwise the shape says it: a merge that
     reaches a request through a later parent but not through its first parent
     is what brought that request in.
+
+    The walk runs ancestors first, so the innermost merge claims a request
+    before anything containing it can. What concludes a request is the merge
+    that brought it in — an integration branch's merge of the work branch —
+    and every later merge in the chain up to the mainline also contains it
+    without having concluded anything.
     """
     concluded: dict[str, str] = {}
     new_commit = repo.get(new)
     if new_commit is None or not isinstance(new_commit, pygit2.Commit):
         return concluded
-    walker = repo.walk(new_commit.id)
+    walker = repo.walk(new_commit.id, SortMode.TOPOLOGICAL | SortMode.REVERSE)
     old_commit = repo.get(old) if old and set(old) != {"0"} else None
     if old_commit is not None and isinstance(old_commit, pygit2.Commit):
         walker.hide(old_commit.id)

@@ -400,7 +400,11 @@ def _untangle(rows: list[dict], reserved: int) -> None:
         return  # nothing bends, so nothing can cross and nothing travels
     pairs = _rivals(bends, runs)
     col = _columns(rows)
-    movable = sorted(seg for seg, c in col.items() if c >= reserved)
+    # Only segments with an extent can move: a segment that never runs
+    # through a gap and never bends occupies its column for no rows at all,
+    # so it cannot cross anything and there is nothing to trade. It also has
+    # no extent to compare, which is how it announced itself.
+    movable = sorted(seg for seg, c in col.items() if c >= reserved and seg in extents)
     pairs_of: dict[int, list[int]] = {}
     for i, (t1, b1, t2, b2) in enumerate(pairs):
         for seg in {t1, b1, t2, b2}:
@@ -410,9 +414,14 @@ def _untangle(rows: list[dict], reserved: int) -> None:
         for seg in {top, bottom}:
             bends_of.setdefault(seg, []).append(i)
 
+    # A segment with no extent never runs through a gap and never bends: it
+    # holds its column for no rows at all. It cannot cross anything, cannot
+    # be crossed, and nothing has to make room for it — so it takes no part
+    # in this pass, neither as something to move nor as something in the way.
     occupants: dict[int, set[int]] = {}
     for seg, c in col.items():
-        occupants.setdefault(c, set()).add(seg)
+        if seg in extents:
+            occupants.setdefault(c, set()).add(seg)
 
     def fits(seg: int, target: int, evicted: int | None = None) -> bool:
         lo, hi = extents[seg]

@@ -463,3 +463,29 @@ def test_a_merge_corridor_beyond_the_reserved_lanes():
     assert at["m"]["lane"] == 0 and at["a"]["lane"] == 0
     assert at["t2"]["lane"] == 1 and at["t3"]["lane"] == 2
     assert at["s"]["lane"] == 3  # the side line stays out of the reserved columns
+
+
+def test_a_segment_with_no_extent_takes_no_part_in_untangling():
+    """A lane that holds its column for no rows at all — it never runs
+    through a gap and never bends — has no extent to compare. It cannot
+    cross anything and nothing has to make room for it, so the untangle pass
+    must leave it out rather than ask where it reaches."""
+    from gitflower import graph
+
+    rows = graph.build(
+        [
+            {"sha": "d", "parents": ["b", "c"], "subject": "merge", "author": "a",
+             "date": "2026-01-04T00:00:00+00:00", "short": "d"},
+            {"sha": "c", "parents": ["a"], "subject": "side", "author": "a",
+             "date": "2026-01-03T00:00:00+00:00", "short": "c"},
+            {"sha": "b", "parents": ["a"], "subject": "main", "author": "a",
+             "date": "2026-01-02T00:00:00+00:00", "short": "b"},
+            {"sha": "a", "parents": [], "subject": "root", "author": "a",
+             "date": "2026-01-01T00:00:00+00:00", "short": "a"},
+        ],
+        {"d"},
+        collapse=False,
+        trunk="main",
+        pinned=["main"],
+    )
+    assert rows["rows"] and rows["width"] >= 1
