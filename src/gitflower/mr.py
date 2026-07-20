@@ -154,14 +154,23 @@ def default_branch(repo: pygit2.Repository) -> str | None:
     from gitflower.gitread import head_branch
 
     if not repo.is_bare:
-        for remote in ("origin", "codeberg", "github"):
+        remotes = [r.name for r in repo.remotes] or ["origin"]
+        for remote in remotes:
+            # what the remote says its default is, when it has said so
             try:
                 ref = repo.references[f"refs/remotes/{remote}/HEAD"]
             except KeyError:
-                continue
-            target = ref.target
-            if isinstance(target, str) and target.startswith("refs/remotes/"):
-                return target.split("/", 3)[-1]
+                ref = None
+            if ref is not None:
+                target = ref.target
+                if isinstance(target, str) and target.startswith("refs/remotes/"):
+                    return target.split("/", 3)[-1]
+            # a clone of a repository that was empty at the time never
+            # learns origin/HEAD, so fall back to the conventional names
+            # among the branches the remote does have
+            for name in ("main", "master", "trunk"):
+                if f"refs/remotes/{remote}/{name}" in repo.references:
+                    return name
     return head_branch(repo)
 
 
