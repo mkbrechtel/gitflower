@@ -468,7 +468,6 @@ rather than appending a duplicate.
 
 Reactions can also be **nested under a Commented-by, Question-asked-by, or Answer-given-by** — same `- Reacted-by: …; <emoji>` shape, indented two extra spaces so it sits as a child of the parent event.
 
-Example:
 ```
 - Commented-by: Alice <alice@example.com>
   Clean refactor.
