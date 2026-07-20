@@ -13,6 +13,7 @@ dependencies = [
     "click",
     "pygit2",
     "PyYAML",
+    "textual",
 ]
 
 [project.scripts]

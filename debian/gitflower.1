@@ -44,6 +44,13 @@ List repositories in the repos directory.
 .B web \fR[\fB\-\-addr\fR \fIADDRESS\fR]
 Start the web server. Every endpoint serves JSON, a full HTML page, and
 an HTML fragment from the same URL via content negotiation.
+.TP
+.B review \fR[\fB\-\-branch\fR \fIBRANCH\fR] [\fB\-\-base\fR \fIREF\fR] [\fB\-\-no\-tui\fR] [\fB\-\-empty\-review\fR] [\fB\-o\fR \fIPATH\fR]
+Review a branch: scaffold a \fI.review\fR covering everything changed since
+the last \fB[Review]\fR merge (falling back to \fImain\fR) and open the
+review TUI. The review is stored on the \fIrefs/notes/reviews\fR notes ref,
+keyed by the reviewed tip commit; \fB\-o\fR mirrors it to a file.
+\fB\-\-no\-tui\fR scaffolds, saves, and prints where the review went.
 .SH FILES
 .TP
 .I <bare-repo>/config
