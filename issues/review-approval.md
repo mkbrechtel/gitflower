@@ -22,7 +22,7 @@ The `.review` format spec ([`../docs/spec/dot-review-format.md`](../docs/spec/do
 
 **Concurrent reviews merge as appends.** dot-review is append-only: an event line is self-contained and idempotent under duplication, so two reviewers' submissions to the same `.review` path merge with git's ordinary machinery and never need manual resolution. `reviews/…` carries a `.gitattributes` `merge=union` entry as the baseline; renderers renormalize on parse by re-emitting the deterministic skeleton. The remaining detail for the format spec's merge section: an appended line landing under a neighbor's heading when both sides extend adjacent subsections. This ports the properties that made `cat_sort_uniq` work from notes to the tree; the `reviews/…` layout itself stays with the MR design's O6.
 
-**The gate is a branch-protection workflow.** The Python rewrite's hook engine — branch router mapping glob patterns to workflows — gains a `review-gate` workflow alongside no-direct-push and linear-history: a push updating a protected branch must be a merge whose history contains a submitted `.review` approving the merged tip, from an eligible approver. This replaces the tool spec's "planned `review-gate` hook" sketch, which scanned notes refs; the in-tree model means the gate reads review commits instead. Kernel-style trailer recognition can stay as a compatibility signal.
+**The gate is a branch-protection workflow.** The Python rewrite's hook engine — branch router mapping glob patterns to workflows — gains a `review-gate` workflow alongside no-direct-push and linear-history: a push updating a protected branch must be a merge whose history contains a submitted `.review` approving the merged tip, from an eligible approver. Eligibility comes from a **`CODEOWNERS` file with email addresses**: the familiar pattern-per-line syntax, owners written as plain `email@example.org` so they match the format's `Verdict-reached-by: <Name> <<email>>` attribution directly. The gate matches the approving verdict's email against the owners covering the paths the merge touches, reading the `CODEOWNERS` of the protected branch's own tip — policy a work branch could edit is not policy. This replaces the tool spec's "planned `review-gate` hook" sketch, which scanned notes refs; the in-tree model means the gate reads review commits instead. Kernel-style trailer recognition can stay as a compatibility signal.
 
 **Python surfaces.** The format spec is language-neutral and survives as-is. The tool spec is bound to the Go bubbletea TUI and gets superseded by a fresh, smaller spec rather than rewritten in place: the click CLI scaffolds either a scoped review of a merge commit (complete diff sections, the gate's approval object) or an empty open review for exploratory and continuous work, hands it to `$EDITOR`, and `gitflower review submit` commits it under `reviews/…`; the FastAPI web UI renders `.review` files read-only in the repo browser and the MR detail view (MR design O7). A TUI is a later possibility, not a rewrite target. The editor-based flow doubles as the agent flow — the format was designed to be written and read by LLMs without specialist tooling, so an agent reviews by appending events to the scaffold and submitting.
 
@@ -44,9 +44,9 @@ The pattern library describes review twice, and the two disagree with each other
 
 ## Open questions
 
-### Q3 — Who is an eligible approver
+### Q3 — Self-approval
 
-Reuse the allowed-users mechanism from the existing branch-protection workflows, a dedicated approver list per protected branch, or any committer who is not the MR author? Whether author self-approval is refused by the gate or merely surfaced belongs here too.
+Eligibility is decided — `CODEOWNERS` with email addresses — but an author can be an owner, so the residue stays open: does the gate refuse an author approving their own merge, or merely surface it?
 
 ### Q6 — Fate of `gitflower review merge` and `[Review]` merges
 
@@ -59,6 +59,7 @@ The tool spec's `review merge` subcommand and its `[Review]`-merge base-ref dete
 - [x] Rewrite the *Storage* and *Multi-reviewer merge* sections of `dot-review-format.md` tree-first, demoting notes to draft state
 - [ ] Spec the append-only merge semantics in `dot-review-format.md` (`merge=union` baseline, renormalizing renderers, the adjacent-subsection hazard)
 - [ ] Spec the `review-gate` workflow in the hook engine, including approval-staleness recognition shared with the MR design
+- [ ] Spec the `CODEOWNERS` file (email owners, pattern syntax, read from the protected branch's tip) and its evaluation in `review-gate`
 - [ ] Write the fresh spec superseding `gitflower-review.md`: click CLI + `$EDITOR` flow, scoped-merge and open-review scaffolds (Q5 decided: supersede)
 - [ ] `.review` rendering in the web UI (read-only; joins the MR detail view, MR design O7)
 - [x] Editorial pass over `dot-review-format.md` (typos: "gitfßlower", "Loosley", "determin", "hierachy")
