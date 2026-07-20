@@ -67,6 +67,14 @@ def work_repo(tmp_path):
 
 
 @pytest.fixture
+def bare_repo(tmp_path):
+    """A bare repository, standing alone — where per-repo config lives."""
+    repo = tmp_path / "bare.git"
+    git(tmp_path, "init", "--bare", "-b", "main", str(repo))
+    return repo
+
+
+@pytest.fixture
 def bare_remote(tmp_path, work_repo):
     """A bare remote wired up as `origin` of work_repo."""
     remote = tmp_path / "remote.git"

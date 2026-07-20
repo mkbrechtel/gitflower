@@ -25,7 +25,7 @@ Architecture: all
 Depends: ${python3:Depends}, ${misc:Depends}, git, adduser
 Description: git-based development platform
  gitflower provides a local-first, git-centric development platform:
- per-repository branch workflow enforcement via a pre-push hook engine
+ per-repository branch workflow enforcement via a pre-receive hook engine
  (protected branches, allow-listed branch rules, linear-history and
  clean-tree checks) and a lightweight web UI for browsing hosted bare
  repositories — tree, blob and commit views, a commit-graph

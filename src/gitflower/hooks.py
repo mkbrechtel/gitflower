@@ -1,32 +1,40 @@
-"""Installing and running the git hooks that enforce branch workflows.
+"""Installing and running the git hook that enforces branch workflows.
 
-`install` writes a small /bin/sh shim into .git/hooks/pre-push; the shim
-calls back into `gitflower hook pre-push` once per pushed ref. All policy
-lives in Python — the shim only splits git's stdin lines.
+`install` writes a small /bin/sh shim into the bare repository's
+hooks/pre-receive; the shim calls back into `gitflower hook pre-receive` once
+per pushed ref. All policy lives in Python — the shim only splits git's stdin
+lines. Enforcement is server-side, so `--no-verify` on the client cannot
+bypass it.
 """
 
 import stat
 from pathlib import Path
 
+from gitflower.config import git_dir
+
 MARKER = "gitflower"
 
-PRE_PUSH_SHIM = """\
+PRE_RECEIVE_SHIM = """\
 #!/bin/sh
-# gitflower pre-push hook
+# gitflower pre-receive hook
 
 GITFLOWER_BIN="${GITFLOWER_BIN:-gitflower}"
 
-while read local_ref local_sha remote_ref remote_sha; do
-    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+while read old_sha new_sha ref_name; do
+    case "$ref_name" in
+        refs/heads/*) ;;
+        *) continue ;;   # tags and other refs are not routed
+    esac
+    if [ "$new_sha" = "0000000000000000000000000000000000000000" ]; then
         # Branch deletion, skip
         continue
     fi
-    branch_name=${remote_ref#refs/heads/}
-    "$GITFLOWER_BIN" hook pre-push \\
+    branch_name=${ref_name#refs/heads/}
+    "$GITFLOWER_BIN" hook pre-receive \\
         --branch "$branch_name" \\
-        --old-ref "$remote_sha" \\
-        --new-ref "$local_sha" \\
-        --ref "$remote_ref"
+        --old-ref "$old_sha" \\
+        --new-ref "$new_sha" \\
+        --ref "$ref_name"
     if [ $? -ne 0 ]; then
         echo "gitflower: Push rejected by workflow"
         exit 1
@@ -37,10 +45,10 @@ exit 0
 
 # hook names gitflower may have owned in some version; uninstall scans these
 HOOK_NAMES = (
+    "pre-receive",
     "pre-push",
     "pre-commit",
     "update",
-    "pre-receive",
     "post-receive",
     "post-checkout",
 )
@@ -51,24 +59,18 @@ class HookError(Exception):
 
 
 def hooks_dir(repo_root: Path | str) -> Path:
-    git_path = Path(repo_root) / ".git"
-    if git_path.is_file():
-        # worktree: ".git" is a pointer file — hooks live in the common dir
-        pointed = Path(git_path.read_text().split(":", 1)[1].strip())
-        if pointed.parent.name == "worktrees":
-            return pointed.parent.parent / "hooks"
-        return pointed / "hooks"
-    return git_path / "hooks"
+    """Where git looks for hooks — the git directory's `hooks`, bare or not."""
+    return git_dir(repo_root) / "hooks"
 
 
 def install(repo_root: Path | str, force: bool = False) -> Path:
-    hook = hooks_dir(repo_root) / "pre-push"
+    hook = hooks_dir(repo_root) / "pre-receive"
     if hook.exists() and MARKER not in hook.read_text() and not force:
         raise HookError(
             f"{hook} exists and was not installed by gitflower; use --force to overwrite"
         )
     hook.parent.mkdir(parents=True, exist_ok=True)
-    hook.write_text(PRE_PUSH_SHIM)
+    hook.write_text(PRE_RECEIVE_SHIM)
     hook.chmod(hook.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     return hook
 

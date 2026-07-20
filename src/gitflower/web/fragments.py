@@ -659,16 +659,17 @@ def docs(data: dict) -> str:
     body = """
 <h1>Documentation</h1>
 <h2>Getting started</h2>
-<pre>gitflower init       # initialize workflows in a repository
-gitflower install    # install the pre-push hook
+<pre>gitflower init       # report the rules in effect for a bare repository
+gitflower install    # install the pre-receive hook
 gitflower create myproject.git
 gitflower list
 gitflower web</pre>
 <h2>Branch workflows</h2>
-<p>Branch rules in <code>.gitflower/config.yaml</code> route each pushed
-branch to a workflow — <code>protected</code>, <code>issue-tracker</code> or
-<code>release-manager</code>. Unconfigured branches are rejected: the rule
-list is an allow-list.</p>
+<p>Branch rules in the bare repository's git config, under
+<code>[gitflower "branch.&lt;pattern&gt;"]</code>, route each pushed branch to a
+workflow — <code>protected</code>, <code>issue-tracker</code> or
+<code>release-manager</code>. The most specific matching pattern wins.
+Unconfigured branches are rejected: the rule list is an allow-list.</p>
 <h2>The API is the frontend</h2>
 <p>Every page on this site is also an API endpoint: request it with
 <code>Accept: application/json</code> (or <code>?format=json</code>) for the
