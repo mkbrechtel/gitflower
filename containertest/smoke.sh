@@ -26,18 +26,40 @@ runuser -u gitflower -- sh -c 'git clone -q /var/lib/gitflower/repos/demo.git /t
     && git push -q origin main'
 
 echo "== hook engine end to end"
+# The hooks belong to the repository being pushed to: enforcement is
+# server-side, so `init` and `install` run in the bare repo and a client
+# cannot opt out of them.
+runuser -u gitflower -- sh -c 'cd /var/lib/gitflower \
+    && git init -q --bare hooked-remote.git \
+    && cd hooked-remote.git && gitflower init >/dev/null && gitflower install >/dev/null \
+    && test -x hooks/pre-receive && test -x hooks/post-receive'
 runuser -u gitflower -- sh -c 'cd /var/lib/gitflower && git init -q hooked && cd hooked \
     && git checkout -q -b main \
     && echo hi > f.txt && git add . \
     && git -c user.name=s -c user.email=s@t.invalid commit -qm c1 \
-    && gitflower init >/dev/null && gitflower install >/dev/null \
-    && git init -q --bare ../hooked-remote.git \
     && git remote add origin ../hooked-remote.git \
     && { git push origin main 2>&1 | grep -q "Direct push to protected branch" \
          || { echo "protected push was not rejected"; exit 1; }; } \
+    && { git push --no-verify origin main 2>&1 | grep -q "Direct push to protected branch" \
+         || { echo "--no-verify bypassed a server-side hook"; exit 1; }; } \
     && git checkout -q -b issues/1 \
     && git push -q origin issues/1'
 echo "hook engine OK"
+
+echo "== a merge request, recorded by the push that carried it"
+runuser -u gitflower -- sh -c 'cd /var/lib/gitflower/hooked \
+    && git -c user.name=s -c user.email=s@t.invalid commit -q --allow-empty \
+         -m "MR: the smoke test asks to merge" \
+    && git push -q origin issues/1'
+# read it back where the record lives: the bare repository the hook wrote it
+# into, whose HEAD names the mainline
+runuser -u gitflower -- sh -c 'cd /var/lib/gitflower/hooked-remote.git \
+    && git for-each-ref --format="%(refname)" refs/mrs/ | grep -q "/request$" \
+       || { echo "the push did not record a merge request"; exit 1; }'
+runuser -u gitflower -- sh -c 'cd /var/lib/gitflower/hooked-remote.git \
+    && gitflower mr list | grep -q "the smoke test asks to merge" \
+       || { echo "mr list did not show the request"; exit 1; }'
+echo "merge requests OK"
 
 echo "== web service (run directly; systemd owns it on a real host)"
 # a dedicated port: rootless `podman build` RUN steps can share the host
