@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
 
-from gitflower import gitread, graph, issues as issuestore, models
+from gitflower import gitread, issues as issuestore, models
 from gitflower.config import (
     ConfigError,
     GlobalConfig,
@@ -27,46 +27,10 @@ from gitflower.slug import SlugError, validate_org_folder, validate_repo_path
 from gitflower.web import fragments, smarthttp
 from gitflower.web.respond import respond
 
-GRAPH_LIMIT = 400
-RECENT_COMMITS = 10
-
 GIT_PROTOCOL_RESPONSES = {
     200: {"content": {"application/octet-stream": {}}, "description": "git protocol stream"},
     404: {"model": models.NotFound},
 }
-
-
-def _graph_model(g: dict) -> models.Graph:
-    rows = [
-        models.GraphRow(
-            id=r["id"],
-            kind=r["kind"],
-            parents=r["parents"],
-            row=r["row"],
-            lane=r["lane"],
-            x=r["x"],
-            y=r["y"],
-            color=r["color"],
-            branch=r.get("branch"),
-            pinned=r.get("pinned", False),
-            dimmed=r.get("dimmed", False),
-            commit=models.Commit(**r["commit"]) if "commit" in r else None,
-            count=r.get("count"),
-            first=models.Commit(**r["first"]) if "first" in r else None,
-            last=models.Commit(**r["last"]) if "last" in r else None,
-        )
-        for r in g["rows"]
-    ]
-    edges = [models.GraphEdge(**e) for e in g["edges"]]
-    return models.Graph(
-        rows=rows,
-        edges=edges,
-        width=g["width"],
-        height=g["height"],
-        row_height=g["row_height"],
-        dot=g["dot"],
-        collapsed=g["collapsed"],
-    )
 
 
 def build_router(cfg: GlobalConfig) -> APIRouter:
@@ -99,15 +63,11 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
 
     @router.get("/", response_model=models.RepoList, summary="Overview: all repositories")
     def index(request: Request) -> Response:
-        result = scan()
-        data = models.RepoList(repos=result.repos, warnings=result.warnings)
-        return respond(request, data, fragments.index, "overview")
+        return respond(request, models.RepoList.of(scan()), fragments.index, "overview")
 
     @router.get("/repos/", response_model=models.RepoList, summary="Repository list")
     def repo_list(request: Request) -> Response:
-        result = scan()
-        data = models.RepoList(repos=result.repos, warnings=result.warnings)
-        return respond(request, data, fragments.repo_list, "repositories")
+        return respond(request, models.RepoList.of(scan()), fragments.repo_list, "repositories")
 
     @router.get("/docs/", response_model=models.DocsPage, summary="Documentation")
     def docs(request: Request) -> Response:
@@ -143,10 +103,7 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
         wants_dir = wants_dir or subpath == ""
         try:
             if wants_dir:
-                entries = [
-                    models.TreeEntry(**entry) for entry in gitread.tree_entries(repo, ref, subpath)
-                ]
-                data = models.TreeView(path=repo_path, ref=ref, subpath=subpath, entries=entries)
+                data = models.TreeView.of(repo, repo_path, ref, subpath)
                 return respond(request, data, fragments.tree, f"{repo_path}: {subpath or '/'}")
             found = gitread.blob(repo, ref, subpath)
         except gitread.GitReadError as exc:
@@ -156,16 +113,7 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
             if found["is_binary"]:
                 return Response(raw, media_type="application/octet-stream")
             return PlainTextResponse(raw)
-        badge = issuestore.issue_for_blob(repo, subpath, found["oid"])
-        data = models.BlobView(
-            path=repo_path,
-            ref=ref,
-            subpath=subpath,
-            size=found["size"],
-            is_binary=found["is_binary"],
-            content="" if found["is_binary"] else raw.decode("utf-8", errors="replace"),
-            issue=models.IssueLink(**badge) if badge else None,
-        )
+        data = models.BlobView.of(repo, repo_path, ref, subpath, found)
         return respond(request, data, fragments.blob, f"{repo_path}: {subpath}")
 
     @router.get(
@@ -189,71 +137,10 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
     ) -> Response:
         repo = repo_or_404(_validated(repo_path))
         try:
-            detail = gitread.diff_detail(repo, sha, parent, full=full)
+            data = models.CommitDiff.of(repo, repo_path, sha, parent=parent, full=full)
         except gitread.GitReadError as exc:
             raise HTTPException(404, str(exc))
-        data = models.CommitDiff(
-            sha=detail["sha"],
-            short=detail["short"],
-            parents=detail["parents"],
-            author=detail["author"],
-            author_email=detail["author_email"],
-            committer=detail["committer"],
-            committer_email=detail["committer_email"],
-            date=detail["date"],
-            subject=detail["subject"],
-            message=detail["message"],
-            path=repo_path,
-            columns=[
-                models.DiffColumn(
-                    index=c["index"],
-                    sha=c["sha"],
-                    short=c["short"],
-                    stats=models.DiffStats(**c["stats"]),
-                )
-                for c in detail["columns"]
-            ],
-            issues=[models.IssueLink(**link) for link in issuestore.issues_for_commit(repo, sha)],
-            files=[
-                models.DiffFile(
-                    path=f["path"],
-                    old_paths=f["old_paths"],
-                    statuses=f["statuses"],
-                    parent_counts=[models.LineCounts(**c) for c in f["parent_counts"]],
-                    binary=f["binary"],
-                    truncated=f["truncated"],
-                    rows=[
-                        models.DiffRow(
-                            kind=r["kind"],
-                            cells=[models.DiffCell(**c) for c in r["cells"]],
-                            result_no=r["result_no"],
-                            result_text=r["result_text"],
-                            merge_authored=r["merge_authored"],
-                            count=r.get("count"),
-                            start=r.get("start"),
-                            end=r.get("end"),
-                        )
-                        for r in f["rows"]
-                    ],
-                )
-                for f in detail["files"]
-            ],
-            diff_parent=detail["diff_parent"],
-            full=full,
-        )
-        return respond(request, data, fragments.commit, f"{repo_path}: {detail['short']}")
-
-    def _issue_doc(doc: dict) -> models.IssueDoc:
-        return models.IssueDoc(
-            key=doc["key"],
-            id=doc["id"],
-            title=doc["title"],
-            frontmatter=doc["frontmatter"],
-            branches={
-                name: models.IssueBranchState(**state)
-                for name, state in doc["branches"].items()
-            },
-        )
+        return respond(request, data, fragments.commit, f"{repo_path}: {data.short}")
 
     @router.get(
         "/repos/{repo_path:path}/issues/",
@@ -266,23 +153,10 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
         request: Request, repo_path: str, q: str | None = None, branch: str | None = None
     ) -> Response:
         repo = repo_or_404(_validated(repo_path))
-        data = issuestore.documents(repo)
-        docs = data["issues"]
-        if branch:
-            docs = [d for d in docs if branch in d["branches"]]
-        if q:
-            try:
-                docs = issuestore.filter_documents(docs, q)
-            except issuestore.QueryError as exc:
-                raise HTTPException(400, str(exc))
-        model = models.IssueList(
-            path=repo_path,
-            default_branch=data["default_branch"],
-            branches=data["branches"],
-            issues=[_issue_doc(d) for d in docs],
-            query=q,
-            branch=branch,
-        )
+        try:
+            model = models.IssueList.of(repo, repo_path, q=q, branch=branch)
+        except issuestore.QueryError as exc:
+            raise HTTPException(400, str(exc))
         return respond(request, model, fragments.issues, f"{repo_path}: issues")
 
     @router.get(
@@ -295,25 +169,10 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
         request: Request, repo_path: str, uuid: str, at: str | None = None
     ) -> Response:
         repo = repo_or_404(_validated(repo_path))
-        detail = issuestore.issue_detail(repo, uuid, at=at)
-        if detail is None:
+        model = models.IssueDetail.of(repo, repo_path, uuid, at=at)
+        if model is None:
             raise HTTPException(404, f"no issue with id {uuid}" + (f" at {at}" if at else ""))
-        doc = _issue_doc(detail)
-        model = models.IssueDetail(
-            path=repo_path,
-            key=doc.key,
-            id=doc.id,
-            title=doc.title,
-            frontmatter=doc.frontmatter,
-            branches=doc.branches,
-            transitions=[models.IssueTransition(**t) for t in detail["transitions"]],
-            content=detail["content"],
-            shown_oid=detail["shown_oid"],
-            shown_path=detail["shown_path"],
-            shown_branch=detail["shown_branch"],
-            at=at,
-        )
-        return respond(request, model, fragments.issue, f"{repo_path}: {doc.title}")
+        return respond(request, model, fragments.issue, f"{repo_path}: {model.title}")
 
     @router.get(
         "/repos/{rest:path}",
@@ -332,40 +191,13 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
         request: Request, repo_path: str, full: bool, show_hidden: bool
     ) -> Response:
         repo = repo_or_404(repo_path)
-        repo_cfg = _repo_config(repo)
-        flagged = gitread.branches(
-            repo, pinned=repo_cfg.pinned_branches, hidden=repo_cfg.hidden_branches
-        )
-        branches = [
-            models.Branch(**b) for b in flagged if show_hidden or not b["hidden"]
-        ]
-        hide = () if show_hidden else repo_cfg.hidden_branches
-        commits = gitread.commits(repo, GRAPH_LIMIT, hidden=hide)
-        trunk = gitread.head_branch(repo)
-        # commits only hidden branches follow up on grey out when expanded
-        dimmed: set[str] = set()
-        if show_hidden and any(b.hidden for b in branches):
-            live = {b.sha for b in branches if not b.hidden}
-            dimmed = {c["sha"] for c in commits} - gitread.reachable(commits, live)
-        laid_out = graph.build(
-            commits,
-            {b.sha for b in branches},
-            collapse=not full,
-            branch_of=gitread.born_on(repo, commits, trunk, hidden=hide),
-            trunk=trunk,
-            pinned=[b.name for b in branches if b.pinned],
-            dimmed=dimmed,
-        )
-        data = models.RepoDetail(
-            path=repo_path,
-            branches=branches,
-            commits=[models.Commit(**c) for c in commits[:RECENT_COMMITS]],
-            graph=_graph_model(laid_out),
+        data = models.RepoDetail.of(
+            repo,
+            repo_path,
+            _repo_config(repo),
             full=full,
-            total_shown=len(commits),
-            clone_url=str(request.base_url) + f"repos/{repo_path}",
             show_hidden=show_hidden,
-            hidden_count=sum(1 for b in flagged if b["hidden"]),
+            clone_url=str(request.base_url) + f"repos/{repo_path}",
         )
         return respond(request, data, fragments.repo, repo_path)
 
@@ -377,8 +209,6 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
                 raise HTTPException(404, str(exc))
         if not (repos_dir / org_path).is_dir():
             raise HTTPException(404, f"no such organization folder: {org_path}")
-        inside = [r for r in scan().repos if r.path.startswith(org_path + "/")]
-        data = models.OrgFolder(org=org_path, repos=inside)
-        return respond(request, data, fragments.org, org_path)
+        return respond(request, models.OrgFolder.of(org_path, scan()), fragments.org, org_path)
 
     return router

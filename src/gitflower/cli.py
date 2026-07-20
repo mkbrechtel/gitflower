@@ -6,7 +6,6 @@ on the current working directory's repository, and hosting commands (create,
 list, web) that act on the configured repos directory.
 """
 
-import json
 import subprocess
 import sys
 from dataclasses import asdict
@@ -17,6 +16,43 @@ import yaml
 
 from gitflower import __version__, config as cfg, hooks
 from gitflower.workflows import Context, RouteError, execute
+
+
+def _table(columns, rows, empty: str = "") -> None:
+    """Render a list view as an aligned table.
+
+    Columns come from gitflower.models, so the CLI and the TUI show the same
+    fields in the same order without either owning the definition.
+    """
+    from gitflower import models
+
+    header = tuple(c.header for c in columns)
+    table = [header, tuple("-" * len(h) for h in header)]
+    table.extend(tuple(models.cells(columns, row)) for row in rows)
+    if not rows and empty:
+        table.append((empty,) + ("",) * (len(header) - 1))
+    widths = [max(len(row[i]) for row in table) for i in range(len(header))]
+    for row in table:
+        click.echo("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip())
+
+
+def _emit(fmt: str, data, columns=None, rows=None, empty: str = "") -> bool:
+    """Serve a view model as json/yaml through the one shared shaping point.
+
+    Returns True when the structured format was emitted, so table callers can
+    fall through. The JSON is byte-for-byte what the web endpoint returns for
+    the same model — same to_dict, same model.
+    """
+    from gitflower import models
+
+    if fmt == "json":
+        click.echo(models.to_json(data))
+        return True
+    if fmt == "yaml":
+        click.echo(yaml.safe_dump(models.to_dict(data), sort_keys=False), nl=False)
+        return True
+    _table(columns, rows, empty)
+    return False
 
 
 def _repo_root() -> Path:
@@ -317,39 +353,15 @@ def create(ctx: click.Context, path: str) -> None:
 @click.pass_context
 def list_repos(ctx: click.Context, fmt: str, warnings: bool) -> None:
     """List repositories in the repos directory."""
-    from gitflower import gitread
+    from gitflower import gitread, models
 
     global_cfg = _global_config(ctx)
     result = gitread.scan_repos(global_cfg.repos.directory, global_cfg.repos.scan_depth)
     if warnings:
         for warning in result.warnings:
             click.echo(warning, err=True)
-    rows = [asdict(repo) for repo in result.repos]
-    if fmt == "json":
-        click.echo(json.dumps(rows, indent=2))
-        return
-    if fmt == "yaml":
-        click.echo(yaml.safe_dump(rows, sort_keys=False), nl=False)
-        return
-    header = ("PATH", "BRANCHES", "MR", "SIZE", "LAST UPDATE", "STATUS")
-    table = [header, tuple("-" * len(h) for h in header)]
-    for repo in result.repos:
-        status = "OK" if repo.is_valid else f"ERROR: {repo.error}"
-        table.append(
-            (
-                repo.path,
-                str(repo.branch_count),
-                str(repo.mr_count),
-                f"{repo.size / (1024 * 1024):.2f} MB",
-                repo.last_update or "",
-                status,
-            )
-        )
-    if not result.repos:
-        table.append(("No repositories found", "", "", "", "", ""))
-    widths = [max(len(row[i]) for row in table) for i in range(len(header))]
-    for row in table:
-        click.echo("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip())
+    data = models.RepoList.of(result)
+    _emit(fmt, data, models.REPO_COLUMNS, data.rows(), "No repositories found")
 
 
 def _hosted_repo(ctx: click.Context, repo_path: str):
@@ -386,35 +398,13 @@ def issues_list(
     ctx: click.Context, repo: str, query: str | None, branch: str | None, fmt: str
 ) -> None:
     """List a repository's issues across its branches."""
-    from gitflower import issues
+    from gitflower import issues, models
 
-    data = issues.documents(_hosted_repo(ctx, repo))
-    docs = data["issues"]
-    if branch:
-        docs = [d for d in docs if branch in d["branches"]]
-    if query:
-        try:
-            docs = issues.filter_documents(docs, query)
-        except issues.QueryError as exc:
-            raise click.ClickException(str(exc))
-    if fmt == "json":
-        click.echo(json.dumps(docs, indent=2))
-        return
-    if fmt == "yaml":
-        click.echo(yaml.safe_dump(docs, sort_keys=False), nl=False)
-        return
-    header = ("TITLE", "ID", "BRANCHES")
-    table = [header, tuple("-" * len(h) for h in header)]
-    for doc in docs:
-        states = " ".join(
-            f"{name}:{state['state']}" for name, state in sorted(doc["branches"].items())
-        )
-        table.append((doc["title"], doc["id"] or "(no id)", states))
-    if not docs:
-        table.append(("No issues found", "", ""))
-    widths = [max(len(row[i]) for row in table) for i in range(len(header))]
-    for row in table:
-        click.echo("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip())
+    try:
+        data = models.IssueList.of(_hosted_repo(ctx, repo), repo, q=query, branch=branch)
+    except issues.QueryError as exc:
+        raise click.ClickException(str(exc))
+    _emit(fmt, data, models.ISSUE_COLUMNS, data.rows(), "No issues found")
 
 
 @issues_group.command("show")
