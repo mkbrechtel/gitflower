@@ -11,11 +11,24 @@ contract — one typed shape, rendered as JSON, HTML, a table, or a DataTable.
 import json
 from dataclasses import asdict, dataclass, field, is_dataclass
 
-from gitflower import gitread, graph as graphlayout, issues as issuestore
+from gitflower import gitread, graph as graphlayout, issues as issuestore, mr as mrs
 from gitflower.gitread import RepoInfo
 
 GRAPH_LIMIT = 400
 RECENT_COMMITS = 10
+
+#: The sections of a repository, in the order every surface shows them.
+#: `key` names the section, `suffix` is what it appends to the repo URL —
+#: Code has no ref in it, so it lands on whatever the repository's HEAD is.
+#: Which one is current is a render argument, not a field: an active tab is
+#: something a surface knows about itself, not part of the data.
+TABS = (
+    ("commits", "Commits", ""),
+    ("branches", "Branches", "/branches/"),
+    ("code", "Code", "/tree/"),
+    ("issues", "Issues", "/issues/"),
+    ("mrs", "Merge Requests", "/mrs/"),
+)
 
 
 def to_dict(data):
@@ -124,6 +137,162 @@ class Branch:
     subject: str
     pinned: bool = False
     hidden: bool = False
+
+
+@dataclass
+class BranchList:
+    """The branch table, its own section rather than a slice of the graph page."""
+
+    path: str
+    branches: list[Branch]
+    show_hidden: bool = False
+    hidden_count: int = 0
+
+    @classmethod
+    def of(cls, repo, path: str, cfg, *, show_hidden: bool = False) -> "BranchList":
+        flagged = gitread.branches(
+            repo, pinned=cfg.pinned_branches, hidden=cfg.hidden_branches
+        )
+        return cls(
+            path=path,
+            branches=[Branch(**b) for b in flagged if show_hidden or not b["hidden"]],
+            show_hidden=show_hidden,
+            hidden_count=sum(1 for b in flagged if b["hidden"]),
+        )
+
+
+@dataclass
+class MrRow:
+    """A merge request as a list row."""
+
+    oid: str
+    short: str
+    title: str
+    state: str
+    source: str
+    target: str
+    stacked_on: str
+    date: str
+    author: str
+
+    @classmethod
+    def of(cls, request: "mrs.MergeRequest", *, mainline: str | None = None) -> "MrRow":
+        return cls(
+            oid=request.oid,
+            short=request.short,
+            title=request.title,
+            state=request.state,
+            source=request.branch or "",
+            target=request.target or mainline or "",
+            stacked_on=(request.stacked_on or "")[: mrs.ABBREV],
+            date=request.date,
+            author=request.author,
+        )
+
+
+MR_COLUMNS = (
+    Column("MR", "short"),
+    Column("STATE", "state"),
+    Column("SOURCE", "source"),
+    Column("TARGET", "target"),
+    Column("STACKED ON", "stacked_on"),
+    Column("TITLE", "title"),
+)
+
+#: the filters the list view offers, in the order it offers them
+MR_STATES = (mrs.OPEN, mrs.MERGED, mrs.SUPERSEDED, mrs.CLOSED, mrs.REJECTED)
+
+
+@dataclass
+class MrList:
+    path: str
+    mainline: str | None
+    mrs: list[MrRow]
+    state: str | None = None  # the active filter, if any
+
+    @classmethod
+    def of(
+        cls, repo, path: str, *, state: str | None = None, mainline: str | None = None
+    ) -> "MrList":
+        mainline = mainline or mrs.default_branch(repo)
+        found = mrs.discover(repo, mainline=mainline)
+        if state:
+            found = [r for r in found if r.state == state]
+        return cls(
+            path=path,
+            mainline=mainline,
+            mrs=[MrRow.of(r, mainline=mainline) for r in found],
+            state=state,
+        )
+
+    def rows(self) -> list[MrRow]:
+        return self.mrs
+
+
+@dataclass
+class MrDetail:
+    path: str
+    oid: str
+    short: str
+    title: str
+    body: str
+    state: str
+    author: str
+    email: str
+    date: str
+    source: str | None
+    target: str | None
+    commits: list["Commit"]
+    topic: str | None = None
+    merge_oid: str | None = None
+    resolution_oid: str | None = None
+    resolution_kind: str | None = None
+    resolution_message: str = ""
+    superseded_by: str | None = None
+    stacked_on: str | None = None
+
+    @classmethod
+    def of(
+        cls, repo, path: str, oid: str, *, mainline: str | None = None
+    ) -> "MrDetail | None":
+        mainline = mainline or mrs.default_branch(repo)
+        found = {r.oid: r for r in mrs.discover(repo, mainline=mainline)}
+        request = found.get(oid) or next(
+            (r for r in found.values() if r.oid.startswith(oid)), None
+        )
+        if request is None:
+            request = mrs.load(repo, oid, mainline=mainline)
+        if request is None:
+            return None
+        resolution_message = ""
+        if request.resolution_oid and request.resolution_oid != request.merge_oid:
+            commit = repo.get(request.resolution_oid)
+            if commit is not None:
+                resolution_message = commit.message.strip()
+        return cls(
+            path=path,
+            oid=request.oid,
+            short=request.short,
+            title=request.title,
+            body=request.body,
+            state=request.state,
+            author=request.author,
+            email=request.email,
+            date=request.date,
+            source=request.branch,
+            target=request.target or mainline,
+            topic=request.topic,
+            commits=[
+                Commit(**c)
+                for c in mrs.line_of_work(repo, request.oid, mainline=mainline)
+            ],
+            merge_oid=request.merge_oid,
+            resolution_oid=request.resolution_oid,
+            resolution_kind=request.resolution_kind,
+            resolution_message=resolution_message,
+            superseded_by=request.superseded_by,
+            stacked_on=request.stacked_on,
+        )
 
 
 @dataclass

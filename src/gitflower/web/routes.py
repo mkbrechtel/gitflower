@@ -10,6 +10,7 @@ Every path component is slug-validated before it touches the filesystem —
 a traversal attempt fails validation and 404s.
 """
 
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -141,6 +142,46 @@ def build_router(cfg: GlobalConfig) -> APIRouter:
         except gitread.GitReadError as exc:
             raise HTTPException(404, str(exc))
         return respond(request, data, fragments.commit, f"{repo_path}: {data.short}")
+
+    @router.get(
+        "/repos/{repo_path:path}/branches/",
+        response_model=models.BranchList,
+        summary="Branch list: tips, dates and subjects. ?hidden=1 includes the "
+        "branches the repository's config hides.",
+    )
+    def branch_list(request: Request, repo_path: str, hidden: bool = False) -> Response:
+        repo_path = _validated(repo_path)
+        repo = repo_or_404(repo_path)
+        data = models.BranchList.of(repo, repo_path, _repo_config(repo), show_hidden=hidden)
+        return respond(request, data, fragments.branches, f"{repo_path}: branches")
+
+    @router.get(
+        "/repos/{repo_path:path}/mrs/",
+        response_model=models.MrList,
+        summary="Merge requests: the empty `MR: …` commits offered for merging, "
+        "with the state derived from the graph. ?state= filters.",
+    )
+    def mr_list(request: Request, repo_path: str, state: str | None = None) -> Response:
+        repo_path = _validated(repo_path)
+        repo = repo_or_404(repo_path)
+        data = models.MrList.of(repo, repo_path, state=state)
+        return respond(request, data, fragments.mr_list, f"{repo_path}: merge requests")
+
+    @router.get(
+        "/repos/{repo_path:path}/mrs/{oid}",
+        response_model=models.MrDetail,
+        summary="One merge request by its id — the SHA of its request commit, "
+        "abbreviated or in full — with the line of work it offers.",
+    )
+    def mr_detail(request: Request, repo_path: str, oid: str) -> Response:
+        repo_path = _validated(repo_path)
+        if not re.fullmatch(r"[0-9a-f]{4,40}", oid):
+            raise HTTPException(404, f"not a merge request id: {oid}")
+        repo = repo_or_404(repo_path)
+        data = models.MrDetail.of(repo, repo_path, oid)
+        if data is None:
+            raise HTTPException(404, f"no merge request {oid}")
+        return respond(request, data, fragments.mr_detail, f"{repo_path}: {data.short}")
 
     @router.get(
         "/repos/{repo_path:path}/issues/",
