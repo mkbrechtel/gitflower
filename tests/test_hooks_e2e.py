@@ -90,6 +90,7 @@ def test_uninstall_removes_only_gitflower_hooks(bare_repo):
     foreign = hooks.hooks_dir(bare_repo) / "pre-commit"
     foreign.write_text("#!/bin/sh\n# my own hook\nexit 0\n")
     removed = hooks.uninstall(bare_repo)
-    assert [p.name for p in removed] == ["pre-receive"]
+    assert sorted(p.name for p in removed) == ["post-receive", "pre-receive"]
     assert foreign.exists()
     assert not (hooks.hooks_dir(bare_repo) / "pre-receive").exists()
+    assert not (hooks.hooks_dir(bare_repo) / "post-receive").exists()

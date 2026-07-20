@@ -223,6 +223,30 @@ def hook_pre_receive(branch: str, old_ref: str, new_ref: str, ref_name: str) -> 
         click.echo(result.message)
 
 
+@hook.command("post-receive")
+@click.option("--branch", required=True)
+@click.option("--old-ref", default="")
+@click.option("--new-ref", default="")
+@click.option("--ref", "ref_name", default="")
+def hook_post_receive(branch: str, old_ref: str, new_ref: str, ref_name: str) -> None:
+    """Record what the accepted push means for merge requests.
+
+    The push is already durable. Nothing here may fail it, so every error is
+    reported and swallowed: losing a ref that can be recomputed is a much
+    smaller harm than rejecting work that was already accepted.
+    """
+    import pygit2
+
+    from gitflower import mr
+
+    try:
+        repo = pygit2.Repository(str(Path.cwd()))
+        for note in mr.record_push(repo, branch, old_ref, new_ref):
+            click.echo(f"gitflower: {note}")
+    except Exception as exc:  # noqa: BLE001 — bookkeeping never fails a push
+        click.echo(f"gitflower: could not record merge requests: {exc}", err=True)
+
+
 # ------------------------------------------------------------- review
 
 
