@@ -8,11 +8,12 @@ Every browse endpoint serves the same data three ways from one URL:
 * full HTML page  — everything else (browser navigation), or ?format=html
 """
 
-from dataclasses import asdict, is_dataclass
 from typing import Callable
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+
+from gitflower.models import to_dict
 
 FRAGMENT_HEADER = "gf-fragment"
 
@@ -36,10 +37,10 @@ def respond(
     status: int = 200,
 ) -> Response:
     """`data` is the route's typed response model (a dataclass instance);
-    its asdict() form is served as JSON and fed to the fragment renderer —
-    one typed contract, three representations."""
-    if is_dataclass(data):
-        data = asdict(data)
+    its to_dict() form is served as JSON and fed to the fragment renderer —
+    one typed contract, three representations. The CLI shapes its own JSON
+    through the same to_dict, so the two surfaces cannot drift."""
+    data = to_dict(data)
     fmt = request.query_params.get("format")
     if fmt == "json" or (fmt is None and wants_json(request)):
         return JSONResponse(data, status_code=status)

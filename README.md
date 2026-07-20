@@ -5,7 +5,7 @@ A git-based development platform — local-first, git-centric. A Python
 `python3-*` apt packages.
 
 ```bash
-sudo apt install python3-fastapi python3-click python3-pygit2 python3-yaml
+sudo apt install python3-fastapi python3-click python3-pygit2 python3-yaml python3-jmespath
 ```
 
 (That's the whole dependency list — plus `python3-pytest` for the tests.
@@ -13,36 +13,46 @@ sudo apt install python3-fastapi python3-click python3-pygit2 python3-yaml
 
 ## The two feature lines
 
-**Branch workflows (per repository).** A pre-push hook engine with a branch
-router: ordered rules map branch glob patterns to workflows, and unconfigured
-branches are rejected — the rule list is an allow-list. Patterns keep the Go
-original's `filepath.Match` semantics (`*` never crosses `/`).
+**Branch workflows (per repository).** A pre-receive hook engine with a branch
+router: rules map branch glob patterns to workflows, and unconfigured branches
+are rejected — the rule list is an allow-list. The most specific matching
+pattern wins, so the order rules are written in does not matter. Patterns keep
+the Go original's `filepath.Match` semantics (`*` never crosses `/`).
+
+Settings live in the bare repository's own git config, so they are server-side
+policy rather than something a clone carries. Enforcement happens where the
+push lands: `--no-verify` cannot bypass it.
 
 ```bash
-gitflower init       # write .gitflower/config.yaml with defaults
-gitflower install    # install the pre-push hook shim
+cd /srv/repos/myproject.git
+gitflower init       # report the effective defaults
+gitflower install    # install the pre-receive hook shim
 gitflower config show
+git config gitflower.branch.main.allowDirectPush true
 ```
 
-```yaml
-# .gitflower/config.yaml
-branch_rules:
-- pattern: main
-  workflow: protected
-- pattern: issues/*
-  workflow: issue-tracker
-- pattern: releases/v*
-  workflow: release-manager
-protected_branches:
-- pattern: main
-  allow_direct_push: false
-  require_linear_history: true
-  allowed_push_users: []
-  require_clean_working_tree: false
+```ini
+# /srv/repos/myproject.git/config
+[gitflower]
+	pinnedBranch = main
+	pinnedBranch = integration
+	hiddenBranch = archive
+[gitflower "branch.main"]
+	workflow = protected
+	requireLinearHistory = true
+[gitflower "branch.issues/*"]
+	workflow = issue-tracker
+[gitflower "branch.releases/v*"]
+	workflow = release-manager
 ```
+
+A repository with no `gitflower.*` keys is governed by exactly those defaults.
 
 **Repo hosting + web UI (global).** Bare repositories under a configured
 directory, browsable in the browser and clonable read-only over smart-HTTP.
+In-tree issues — markdown files under `issues/`, identified by an `id:` in
+their front matter — are browsable across branches at
+`/repos/<path>/issues/` and filterable with JMESPath.
 
 ```bash
 gitflower create myorg/myproject.git

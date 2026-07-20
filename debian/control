@@ -12,6 +12,8 @@ Build-Depends: debhelper-compat (= 13),
                python3-click <!nocheck>,
                python3-pygit2 <!nocheck>,
                python3-yaml <!nocheck>,
+               python3-textual <!nocheck>,
+               python3-jmespath <!nocheck>,
                python3-httpx <!nocheck>,
                git <!nocheck>
 Standards-Version: 4.7.2
@@ -25,7 +27,7 @@ Architecture: all
 Depends: ${python3:Depends}, ${misc:Depends}, git, adduser
 Description: git-based development platform
  gitflower provides a local-first, git-centric development platform:
- per-repository branch workflow enforcement via a pre-push hook engine
+ per-repository branch workflow enforcement via a pre-receive hook engine
  (protected branches, allow-listed branch rules, linear-history and
  clean-tree checks) and a lightweight web UI for browsing hosted bare
  repositories — tree, blob and commit views, a commit-graph

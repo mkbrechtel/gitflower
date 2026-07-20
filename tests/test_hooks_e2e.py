@@ -1,22 +1,21 @@
-"""End-to-end: real `git push` through the installed pre-push shim.
+"""End-to-end: real `git push` through the installed pre-receive shim.
 
 The shim invokes $GITFLOWER_BIN (a wrapper around `python3 -m gitflower`
-here, the console script in production) once per pushed ref.
+here, the console script in production) once per pushed ref, inside the bare
+repository that is receiving the push.
 """
-
-import os
 
 import pytest
 
-from gitflower import config as cfg, hooks
+from gitflower import hooks
 from tests.conftest import git
 
 
 @pytest.fixture
-def hooked_repo(work_repo, bare_remote, gitflower_bin, monkeypatch):
-    hooks.install(work_repo)
+def hooked_remote(work_repo, bare_remote, gitflower_bin, monkeypatch):
+    hooks.install(bare_remote)
     monkeypatch.setenv("GITFLOWER_BIN", str(gitflower_bin))
-    return work_repo
+    return bare_remote
 
 
 def push(repo, *refspec, expect_ok=True):
@@ -28,60 +27,70 @@ def push(repo, *refspec, expect_ok=True):
     return result
 
 
-def test_protected_branch_rejected(hooked_repo):
-    result = push(hooked_repo, "main", expect_ok=False)
+def test_protected_branch_rejected(work_repo, hooked_remote):
+    result = push(work_repo, "main", expect_ok=False)
     assert (
         "Direct push to protected branch 'main' is not allowed. "
         "Please use a merge request." in result.stderr
     )
-    # the shim's own message goes to the hook's stdout
     assert "gitflower: Push rejected by workflow" in result.stdout + result.stderr
 
 
-def test_unconfigured_branch_rejected(hooked_repo):
-    git(hooked_repo, "checkout", "-b", "feature/x")
-    result = push(hooked_repo, "feature/x", expect_ok=False)
+def test_no_verify_cannot_bypass(work_repo, hooked_remote):
+    """Server-side enforcement is the point: the client cannot opt out."""
+    result = git(work_repo, "push", "--no-verify", "origin", "main", check=False)
+    assert result.returncode != 0
+    assert "Direct push to protected branch 'main'" in result.stderr
+
+
+def test_unconfigured_branch_rejected(work_repo, hooked_remote):
+    git(work_repo, "checkout", "-b", "feature/x")
+    result = push(work_repo, "feature/x", expect_ok=False)
     assert (
         "no workflow found for branch 'feature/x' - branch not allowed by configuration"
         in result.stderr
     )
 
 
-def test_passthrough_branch_allowed(hooked_repo):
-    git(hooked_repo, "checkout", "-b", "issues/42")
-    push(hooked_repo, "issues/42")
+def test_passthrough_branch_allowed(work_repo, hooked_remote):
+    git(work_repo, "checkout", "-b", "issues/42")
+    push(work_repo, "issues/42")
 
 
-def test_deletion_skipped(hooked_repo):
-    git(hooked_repo, "checkout", "-b", "issues/9")
-    push(hooked_repo, "issues/9")
-    push(hooked_repo, ":issues/9")  # deletion: zero sha, shim skips it
+def test_deletion_skipped(work_repo, hooked_remote):
+    git(work_repo, "checkout", "-b", "issues/9")
+    push(work_repo, "issues/9")
+    push(work_repo, ":issues/9")  # deletion: zero sha, shim skips it
 
 
-def test_allow_direct_push_config(hooked_repo):
-    config = cfg.default_repo_config()
-    config.protected_branches[0].allow_direct_push = True
-    path = cfg.repo_config_path(hooked_repo)
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(cfg.dump_repo_config(config))
-    push(hooked_repo, "main")
+def test_allow_direct_push_config(work_repo, hooked_remote):
+    git(hooked_remote, "config", "gitflower.branch.main.workflow", "protected")
+    git(hooked_remote, "config", "gitflower.branch.main.allowDirectPush", "true")
+    push(work_repo, "main")
 
 
-def test_install_refuses_foreign_hook(work_repo):
-    hook_path = hooks.hooks_dir(work_repo) / "pre-push"
+def test_tags_are_not_routed(work_repo, hooked_remote):
+    """Only refs/heads/* goes through the router; a tag push is untouched."""
+    git(work_repo, "tag", "v1")
+    push(work_repo, "v1")
+
+
+def test_install_refuses_foreign_hook(bare_repo):
+    hook_path = hooks.hooks_dir(bare_repo) / "pre-receive"
     hook_path.parent.mkdir(parents=True, exist_ok=True)
     hook_path.write_text("#!/bin/sh\nexit 0\n")
     with pytest.raises(hooks.HookError, match="use --force"):
-        hooks.install(work_repo)
-    hooks.install(work_repo, force=True)
+        hooks.install(bare_repo)
+    hooks.install(bare_repo, force=True)
     assert hooks.MARKER in hook_path.read_text()
 
 
-def test_uninstall_removes_only_gitflower_hooks(work_repo):
-    hooks.install(work_repo)
-    foreign = hooks.hooks_dir(work_repo) / "pre-commit"
+def test_uninstall_removes_only_gitflower_hooks(bare_repo):
+    hooks.install(bare_repo)
+    foreign = hooks.hooks_dir(bare_repo) / "pre-commit"
     foreign.write_text("#!/bin/sh\n# my own hook\nexit 0\n")
-    removed = hooks.uninstall(work_repo)
-    assert [p.name for p in removed] == ["pre-push"]
+    removed = hooks.uninstall(bare_repo)
+    assert sorted(p.name for p in removed) == ["post-receive", "pre-receive"]
     assert foreign.exists()
-    assert not (hooks.hooks_dir(work_repo) / "pre-push").exists()
+    assert not (hooks.hooks_dir(bare_repo) / "pre-receive").exists()
+    assert not (hooks.hooks_dir(bare_repo) / "post-receive").exists()

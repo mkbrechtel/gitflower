@@ -6,11 +6,14 @@ an HTML fragment wrapped in a declarative shadow root (see html.view), so its
 in gitflower.css — custom properties pierce the shadow boundary; rules don't.
 """
 
+import yaml
+
+from gitflower.web.chrome import CHROME_CSS, crumbs as _crumbs, repo_header, repo_url as _repo_url
 from gitflower.web.html import esc, view
 
 # style snippets shared by several fragments (still emitted per-fragment —
 # each shadow root is its own scope)
-BASE_CSS = """
+BASE_CSS = CHROME_CSS + """
 :host { display: block; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -22,7 +25,6 @@ table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 th { text-align: left; color: var(--fg-dim); font-weight: 500; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
 th, td { padding: 0.45rem 0.8rem 0.45rem 0; border-bottom: 1px solid var(--border); }
 .dim { color: var(--fg-dim); font-size: 0.85rem; }
-.crumbs { color: var(--fg-dim); margin: 0 0 1rem; }
 .empty { color: var(--fg-dim); font-style: italic; }
 pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1rem; overflow-x: auto; font-family: var(--mono); font-size: 0.82rem; line-height: 1.45; }
 """
@@ -34,17 +36,6 @@ def _size(n: int) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n / 1:.1f} {unit}"
         n /= 1024
     return f"{n} B"
-
-
-def _repo_url(path: str) -> str:
-    return "/repos/" + "/".join(esc(p) for p in path.split("/"))
-
-
-def _crumbs(*parts: tuple[str, str | None]) -> str:
-    out = []
-    for label, url in parts:
-        out.append(f'<a href="{url}">{esc(label)}</a>' if url else esc(label))
-    return f'<p class="crumbs">{" / ".join(out)}</p>'
 
 
 def _repo_table(repos: list[dict]) -> str:
@@ -216,36 +207,61 @@ def _graph_svg(
 """
 
 
-def repo(data: dict) -> str:
-    url = _repo_url(data["path"])
-    tips: dict[str, list[str]] = {}
-    for branch in data["branches"]:
-        tips.setdefault(branch["sha"], []).append(branch["name"])
-    branch_rows = "".join(
+def _branch_table(url: str, branches: list[dict]) -> str:
+    if not branches:
+        return '<p class="empty">Empty repository — push something first.</p>'
+    rows = "".join(
         f'<tr><td><a href="{url}/tree/{esc(b["name"])}/">{esc(b["name"])}</a>'
         f'{" <span class=dim>(hidden)</span>" if b["hidden"] else ""}</td>'
         f'<td><a href="{url}/commit/{esc(b["sha"])}"><code>{esc(b["short"])}</code></a></td>'
         f'<td class="dim">{esc(b["date"][:10])}</td>'
         f"<td>{esc(b['subject'])}</td></tr>"
-        for b in data["branches"]
+        for b in branches
     )
-    branches = (
+    return (
         "<table><thead><tr><th>branch</th><th>tip</th><th>last commit</th>"
-        f'<th>subject</th></tr></thead><tbody>{branch_rows}</tbody></table>'
-        if data["branches"]
-        else '<p class="empty">Empty repository — push something first.</p>'
+        f'<th>subject</th></tr></thead><tbody>{rows}</tbody></table>'
     )
+
+
+def repo(data: dict) -> str:
+    """The Commits tab: the graph, which is what a repository looks like."""
+    url = _repo_url(data["path"])
+    tips: dict[str, list[str]] = {}
+    for branch in data["branches"]:
+        tips.setdefault(branch["sha"], []).append(branch["name"])
     body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], None))}
+{repo_header(data["path"], "commits")}
 <h1>{esc(data["path"])}</h1>
-<h2>Graph</h2>
 {_graph_svg(data["graph"], url, tips, data["full"], data["show_hidden"], data["hidden_count"])}
-<h2>Branches</h2>
-{branches}
 <h2>Clone (read-only)</h2>
 <pre>git clone {esc(data["clone_url"])}</pre>
 """
     return view(BASE_CSS + GRAPH_CSS, body)
+
+
+def branches(data: dict) -> str:
+    """The Branches tab: the branch table the graph page used to carry."""
+    url = _repo_url(data["path"])
+    hidden_note = ""
+    if data["hidden_count"]:
+        if data["show_hidden"]:
+            hidden_note = (
+                f'<p class="dim"><a href="{url}/branches/">hide '
+                f'{data["hidden_count"]} hidden branches</a></p>'
+            )
+        else:
+            hidden_note = (
+                f'<p class="dim"><a href="{url}/branches/?hidden=1">show '
+                f'{data["hidden_count"]} hidden branches</a></p>'
+            )
+    body = f"""
+{repo_header(data["path"], "branches")}
+<h1>Branches <span class="dim">{len(data["branches"])}</span></h1>
+{_branch_table(url, data["branches"])}
+{hidden_note}
+"""
+    return view(BASE_CSS, body)
 
 
 TREE_CSS = """
@@ -275,7 +291,7 @@ def tree(data: dict) -> str:
                 f'<td class="dim">{entry["mode"]}</td><td class="dim">{_size(entry["size"])}</td></tr>'
             )
     body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], url), (data["ref"], f"{url}/tree/{ref}/"), (subpath or ".", None))}
+{repo_header(data["path"], "code", (data["ref"], f"{url}/tree/{ref}/"), (subpath or ".", None))}
 <h1>{esc(data["path"])} <span class="dim">@ {ref}</span></h1>
 <table><thead><tr><th>name</th><th>mode</th><th>size</th></tr></thead>
 <tbody>{"".join(rows)}</tbody></table>
@@ -291,10 +307,21 @@ def blob(data: dict) -> str:
     else:
         content = f"<pre>{esc(data['content'])}</pre>"
     raw = f"{url}/tree/{ref}/{esc(data['subpath'])}?format=raw"
+    issue_badge = ""
+    if data.get("issue"):
+        link = data["issue"]
+        if link["id"]:
+            issue_badge = (
+                f'<p class="dim">this file is issue '
+                f'<a href="{url}/issues/{esc(link["id"])}">{esc(link["title"])}</a></p>'
+            )
+        else:
+            issue_badge = f'<p class="dim">this file is issue {esc(link["title"])} (no id)</p>'
     body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], url), (data["ref"], f"{url}/tree/{ref}/"), (data["subpath"], None))}
+{repo_header(data["path"], "code", (data["ref"], f"{url}/tree/{ref}/"), (data["subpath"], None))}
 <h1>{esc(data["subpath"])} <span class="dim">@ {ref}</span></h1>
 <p class="dim">{_size(data["size"])} · <a href="{raw}">raw</a></p>
+{issue_badge}
 {content}
 """
     return view(BASE_CSS, body)
@@ -305,12 +332,6 @@ DIFF_CSS = """
 .wrap-toggle { display: flex; align-items: center; gap: 0.4em; font-size: 0.8rem; color: var(--fg-dim); cursor: pointer; user-select: none; }
 .wrap-toggle[hidden] { display: none; }
 .wrap-toggle input { accent-color: var(--accent); margin: 0; }
-pre.patch { white-space: pre-wrap; overflow-wrap: anywhere; }
-.changes.nowrap pre.patch { white-space: pre; overflow-wrap: normal; }
-.patch .add { color: var(--diff-add); }
-.patch .del { color: var(--diff-del); }
-.patch .hunk { color: var(--accent); }
-.patch .head { color: var(--fg-dim); }
 .meta { border: 1px solid var(--border); border-radius: 6px; padding: 0.7rem 1rem; font-size: 0.88rem; display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; }
 .meta dt { color: var(--fg-dim); margin: 0; }
 .meta dd { margin: 0; overflow-wrap: anywhere; }
@@ -318,15 +339,37 @@ pre.patch { white-space: pre-wrap; overflow-wrap: anywhere; }
 .stat-del { color: var(--diff-del); }
 .filelist { list-style: none; margin: 0.6rem 0; padding: 0; font-size: 0.88rem; }
 .filelist li { display: flex; gap: 0.7rem; padding: 0.15rem 0; font-family: var(--mono); }
-.filelist .counts { margin-left: auto; white-space: nowrap; }
 .status { flex: none; width: 1.2em; text-align: center; font-weight: 700; border-radius: 4px; font-size: 0.8em; line-height: 1.6; }
 .status-A { color: var(--diff-add); }
 .status-D { color: var(--diff-del); }
 .status-M, .status-R { color: var(--accent); }
 details.file { border: 1px solid var(--border); border-radius: 6px; margin: 0.8rem 0; overflow: hidden; }
 details.file > summary { cursor: pointer; padding: 0.5rem 0.9rem; background: var(--code-bg); font-family: var(--mono); font-size: 0.85rem; display: flex; gap: 0.7rem; align-items: baseline; flex-wrap: wrap; }
-details.file > summary .counts { margin-left: auto; }
 details.file > pre { margin: 0; border: none; border-radius: 0; }
+.parentstats code { font-size: 0.85em; }
+.legend { font-size: 0.82rem; }
+.diff-wrap { overflow-x: auto; }
+table.diff { border-collapse: collapse; font-family: var(--mono); font-size: 0.78rem; line-height: 1.55; width: 100%; }
+table.diff th { font-size: 0.72rem; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); }
+table.diff td { padding: 0 0.6rem; border-bottom: none; border-left: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
+.changes.nowrap table.diff td { white-space: pre; overflow-wrap: normal; }
+table.diff th:first-child, table.diff td:first-child { border-left: none; }
+table.diff .ln { display: inline-block; min-width: 2.4em; margin-right: 0.7em; text-align: right; color: var(--fg-dim); user-select: none; }
+table.diff td.changed, table.diff td.removed { color: var(--diff-del); background: var(--diff-del-bg); }
+table.diff td.absent { background: repeating-linear-gradient(45deg, transparent 0 6px, var(--code-bg) 6px 8px); }
+table.diff td.res .sign { display: inline-block; width: 1em; color: var(--diff-add); font-weight: 700; user-select: none; }
+table.diff td.res.add { background: var(--diff-add-bg); }
+table.diff td.res.gone { background: var(--diff-del-bg); }
+.flag { color: var(--accent); margin-left: 0.5em; }
+tr.fold td { border-left: none; background: var(--code-bg); text-align: center; padding: 0.3rem; font-size: 0.75rem; }
+"""
+
+TABS_CSS = """
+.tabs { display: flex; margin: 1.2rem 0 0.4rem; border: 1px solid var(--border); border-radius: 6px; overflow-x: auto; width: max-content; max-width: 100%; font-size: 0.85rem; }
+.tabs a { padding: 0.4rem 0.9rem; color: var(--fg); border-right: 1px solid var(--border); white-space: nowrap; }
+.tabs a:last-child { border-right: none; }
+.tabs a:hover { background: var(--code-bg); text-decoration: none; }
+.tabs a.on { background: var(--code-bg); color: var(--accent); font-weight: 600; }
 """
 
 
@@ -337,38 +380,6 @@ def _wrap_toggle() -> str:
         '<label class="wrap-toggle" hidden>'
         '<input type="checkbox" checked> soft-wrap lines</label>'
     )
-
-
-def _counts(additions: int, deletions: int) -> str:
-    return (
-        f'<span class="counts"><span class="stat-add">+{additions}</span> '
-        f'<span class="stat-del">−{deletions}</span></span>'
-    )
-
-
-def _colorize_patch(patch: str) -> str:
-    lines = []
-    for line in patch.splitlines():
-        cls = ""
-        if line.startswith("+") and not line.startswith("+++"):
-            cls = "add"
-        elif line.startswith("-") and not line.startswith("---"):
-            cls = "del"
-        elif line.startswith("@@"):
-            cls = "hunk"
-        elif line.startswith(("diff ", "index ", "+++", "---")):
-            cls = "head"
-        lines.append(f'<span class="{cls}">{esc(line)}</span>' if cls else esc(line))
-    return "\n".join(lines)
-
-
-TABS_CSS = """
-.tabs { display: flex; margin: 1.2rem 0 0.4rem; border: 1px solid var(--border); border-radius: 6px; overflow-x: auto; width: max-content; max-width: 100%; font-size: 0.85rem; }
-.tabs a { padding: 0.4rem 0.9rem; color: var(--fg); border-right: 1px solid var(--border); white-space: nowrap; }
-.tabs a:last-child { border-right: none; }
-.tabs a:hover { background: var(--code-bg); text-decoration: none; }
-.tabs a.on { background: var(--code-bg); color: var(--accent); font-weight: 600; }
-"""
 
 
 def _commit_meta(url: str, data: dict, parents_html: str) -> str:
@@ -401,126 +412,67 @@ def _tab(label: str, href: str, on: bool) -> str:
     return f'<a{cls} href="{href}">{label}</a>'
 
 
-def _parent_tabs(url: str, sha: str, parents: list[tuple[str, str]], active: int) -> str:
-    """The merge-commit view switcher: 0 = side-by-side, N = diff vs parent N."""
-    base = f"{url}/commit/{esc(sha)}"
-    tabs = [_tab("side by side", base, active == 0)]
-    for i, (_psha, short) in enumerate(parents, 1):
+def _commit_url(url: str, sha: str, parent: int | None = None, full: bool = False) -> str:
+    """A commit URL keeping the current view's parent selection and fold state."""
+    query = []
+    if parent:
+        query.append(f"parent={parent}")
+    if full:
+        query.append("full=1")
+    return f"{url}/commit/{esc(sha)}" + ("?" + "&".join(query) if query else "")
+
+
+def _parent_tabs(url: str, data: dict) -> str:
+    """Which parents the side-by-side view puts side by side: all of them, or
+    one. Only merges have a choice — a single parent is the whole story."""
+    if len(data["parents"]) < 2:
+        return ""
+    active = data["diff_parent"]
+    tabs = [_tab("all parents", _commit_url(url, data["sha"], full=data["full"]), active is None)]
+    for i, psha in enumerate(data["parents"], 1):
         tabs.append(
-            _tab(f"diff vs parent {i} <code>{esc(short)}</code>", f"{base}?parent={i}", active == i)
+            _tab(
+                f"parent {i} <code>{esc(psha[:7])}</code>",
+                _commit_url(url, data["sha"], parent=i, full=data["full"]),
+                active == i,
+            )
         )
     return f'<nav class="tabs">{"".join(tabs)}</nav>'
 
 
-def commit(data: dict) -> str:
-    url = _repo_url(data["path"])
-    parents = (
-        " ".join(
-            f'<a href="{url}/commit/{esc(p)}"><code>{esc(p[:7])}</code></a>'
-            for p in data["parents"]
-        )
-        or '<span class="dim">none (initial commit)</span>'
+def _column_label(c: dict) -> str:
+    """How a column names itself: a parent number and sha, or the empty tree
+    a root commit is diffed against."""
+    if c["index"] is None:
+        return "the empty tree"
+    return f'parent {c["index"]} <code>{esc(c["short"])}</code>'
+
+
+def _issue_links(url: str, data: dict) -> str:
+    if not data.get("issues"):
+        return ""
+    links = ", ".join(
+        f'<a href="{url}/issues/{esc(link["id"])}">{esc(link["title"])}</a>'
+        if link["id"]
+        else esc(link["title"])
+        for link in data["issues"]
     )
-    tabs = ""
-    if len(data["parents"]) > 1:
-        active = data["diff_parent"]
-        pairs = [(p, p[:7]) for p in data["parents"]]
-        tabs = _parent_tabs(url, data["sha"], pairs, active) + (
-            f'<p class="dim">Showing changes against parent {active} '
-            f"<code>{esc(pairs[active - 1][1])}</code>.</p>"
-        )
-
-    stats = data["stats"]
-    filelist = "".join(
-        f'<li><span class="status status-{esc(f["status"])}">{esc(f["status"])}</span>'
-        f'<a href="#f-{i}">{_file_label(f)}</a>{_counts(f["additions"], f["deletions"])}</li>'
-        for i, f in enumerate(data["files"])
-    )
-    sections = "".join(_file_section(url, data["sha"], i, f) for i, f in enumerate(data["files"]))
-    changes = (
-        f"""
-<p class="dim">{stats["files_changed"]} file{"s" if stats["files_changed"] != 1 else ""} changed,
-<span class="stat-add">+{stats["additions"]}</span> <span class="stat-del">−{stats["deletions"]}</span></p>
-<ul class="filelist">{filelist}</ul>
-{sections}"""
-        if data["files"]
-        else '<p class="empty">No changes to display.</p>'
-    )
-    body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], url), (data["short"], None))}
-<h1>{esc(data["subject"])}</h1>
-{_commit_meta(url, data, parents)}
-{_message_body(data)}
-{tabs}
-<div class="changes-head"><h2>Changes</h2>{_wrap_toggle()}</div>
-<div class="changes">
-{changes}
-</div>
-"""
-    return view(BASE_CSS + DIFF_CSS + TABS_CSS, body)
+    return f'<p class="dim">issues touched: {links}</p>'
 
 
-def _file_label(f: dict) -> str:
-    if f["status"] == "R":
-        return f"{esc(f['old_path'])} → {esc(f['path'])}"
-    return esc(f["path"] if f["status"] != "D" else f["old_path"])
-
-
-def _file_section(url: str, sha: str, i: int, f: dict) -> str:
-    if f["binary"]:
-        content = '<pre><span class="dim">Binary file not shown.</span></pre>'
-    elif f["patch"]:
-        content = f'<pre class="patch">{_colorize_patch(f["patch"])}</pre>'
-    else:
-        content = '<pre><span class="dim">No textual changes.</span></pre>'
-    file_link = (
-        f' <a href="{url}/tree/{esc(sha)}/{esc(f["path"])}">view file</a>'
-        if f["status"] != "D"
-        else ""
-    )
-    return f"""
-<details class="file" id="f-{i}" open>
-<summary><span class="status status-{esc(f["status"])}">{esc(f["status"])}</span>
-{_file_label(f)}{_counts(f["additions"], f["deletions"])}{file_link}</summary>
-{content}
-</details>"""
-
-
-MERGE_CSS = """
-.parentstats code { font-size: 0.85em; }
-.legend { font-size: 0.82rem; }
-.merge-wrap { overflow-x: auto; }
-table.merge { border-collapse: collapse; font-family: var(--mono); font-size: 0.78rem; line-height: 1.55; width: 100%; }
-table.merge th { font-size: 0.72rem; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); }
-table.merge td { padding: 0 0.6rem; border-bottom: none; border-left: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
-.changes.nowrap table.merge td { white-space: pre; overflow-wrap: normal; }
-table.merge th:first-child, table.merge td:first-child { border-left: none; }
-table.merge .ln { display: inline-block; min-width: 2.4em; margin-right: 0.7em; text-align: right; color: var(--fg-dim); user-select: none; }
-table.merge td.changed, table.merge td.removed { color: var(--diff-del); background: var(--diff-del-bg); }
-table.merge td.absent { background: repeating-linear-gradient(45deg, transparent 0 6px, var(--code-bg) 6px 8px); }
-table.merge td.res .sign { display: inline-block; width: 1em; color: var(--diff-add); font-weight: 700; user-select: none; }
-table.merge td.res.add { background: var(--diff-add-bg); }
-table.merge td.res.gone { background: var(--diff-del-bg); }
-.flag { color: var(--accent); margin-left: 0.5em; }
-tr.fold td { border-left: none; background: var(--code-bg); text-align: center; padding: 0.3rem; font-size: 0.75rem; }
-"""
-
-
-def _merge_table(url: str, data: dict, f: dict) -> str:
-    n = len(data["parents"])
+def _diff_table(url: str, data: dict, f: dict) -> str:
+    columns = data["columns"]
+    n = len(columns)
     head = (
-        "".join(
-            f'<th><a href="{url}/commit/{esc(p["sha"])}">parent {i} · {esc(p["short"])}</a></th>'
-            for i, p in enumerate(data["parents"], 1)
-        )
-        + "<th>result</th>"
+        "".join(f"<th>{_column_link(url, c)}</th>" for c in columns) + "<th>result</th>"
     )
+    unfold = _commit_url(url, data["sha"], parent=data["diff_parent"], full=True)
     rows = []
     for row in f["rows"]:
         if row["kind"] == "fold":
             rows.append(
                 f'<tr class="fold"><td colspan="{n + 1}">'
-                f'<a href="{url}/commit/{esc(data["sha"])}?full=1">'
+                f'<a href="{unfold}">'
                 f'⋯ {row["count"]} unchanged lines ({row["start"]}–{row["end"]}) — show</a>'
                 "</td></tr>"
             )
@@ -558,31 +510,44 @@ def _merge_table(url: str, data: dict, f: dict) -> str:
             cells.append(f'<td class="res gone">{flag}</td>')
         rows.append(f'<tr>{"".join(cells)}</tr>')
     return (
-        '<div class="merge-wrap"><table class="merge">'
+        '<div class="diff-wrap"><table class="diff">'
         f'<thead><tr>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
     )
 
 
-def _merge_file_section(url: str, data: dict, i: int, f: dict) -> str:
+def _column_link(url: str, c: dict) -> str:
+    label = _column_label(c)
+    if not c["sha"]:
+        return f'<span class="dim">{label}</span>'
+    return f'<a href="{url}/commit/{esc(c["sha"])}">{label}</a>'
+
+
+def _file_status(f: dict) -> str:
+    """The one status char standing for a file across every column: the first
+    real change, or "=" when no column changed it."""
+    return next((s for s in f["statuses"] if s != "="), "=")
+
+
+def _file_section(url: str, data: dict, i: int, f: dict) -> str:
     labels = []
-    for status, p, c in zip(f["statuses"], data["parents"], f["parent_counts"]):
+    for status, c, counts in zip(f["statuses"], data["columns"], f["parent_counts"]):
+        vs = _column_label(c)
         if status == "=":
-            labels.append(f'<span class="dim">= vs {esc(p["short"])}</span>')
+            labels.append(f'<span class="dim">= vs {vs}</span>')
         else:
             labels.append(
                 f'<span class="status status-{esc(status)}">{esc(status)}</span> '
-                f'vs {esc(p["short"])} <span class="stat-add">+{c["additions"]}</span> '
-                f'<span class="stat-del">−{c["deletions"]}</span>'
+                f'vs {vs} <span class="stat-add">+{counts["additions"]}</span> '
+                f'<span class="stat-del">−{counts["deletions"]}</span>'
             )
     if f["binary"]:
         content = '<pre><span class="dim">Binary file not shown.</span></pre>'
     elif f["truncated"]:
         content = (
-            '<pre><span class="dim">File too large for the side-by-side view — '
-            "use the per-parent diff tabs above.</span></pre>"
+            '<pre><span class="dim">File too large for the side-by-side view.</span></pre>'
         )
     elif f["rows"]:
-        content = _merge_table(url, data, f)
+        content = _diff_table(url, data, f)
     else:
         content = '<pre><span class="dim">No textual changes.</span></pre>'
     deleted = "D" in f["statuses"]
@@ -598,77 +563,217 @@ def _merge_file_section(url: str, data: dict, i: int, f: dict) -> str:
 </details>"""
 
 
-def merge(data: dict) -> str:
-    """A merge commit: side-by-side per-parent columns against the plain
-    result. The result column is not a diff — it is the merged content."""
+def commit(data: dict) -> str:
+    """A commit's side-by-side diff — the one diff view, whatever the parent
+    count. One column per parent against the plain result; the result column
+    is not a diff, it is the content the commit produced."""
     url = _repo_url(data["path"])
-    parents_html = " ".join(
-        f'<a href="{url}/commit/{esc(p["sha"])}"><code>{esc(p["short"])}</code></a>'
-        for p in data["parents"]
+    parents_html = (
+        " ".join(
+            f'<a href="{url}/commit/{esc(p)}"><code>{esc(p[:7])}</code></a>'
+            for p in data["parents"]
+        )
+        or '<span class="dim">none (initial commit)</span>'
     )
-    tabs = _parent_tabs(
-        url, data["sha"], [(p["sha"], p["short"]) for p in data["parents"]], active=0
-    )
+    tabs = _parent_tabs(url, data)
     stat_bits = []
-    for i, (p, s) in enumerate(zip(data["parents"], data["parent_stats"]), 1):
+    for c in data["columns"]:
+        s = c["stats"]
         if s["files_changed"] == 0:
             stat_bits.append(
-                f'vs parent {i} <code>{esc(p["short"])}</code>: no changes — '
-                "the merge took this side as-is"
+                f"vs {_column_label(c)}: no changes — this side was taken as-is"
             )
         else:
             stat_bits.append(
-                f'vs parent {i} <code>{esc(p["short"])}</code>: '
+                f'vs {_column_label(c)}: '
                 f'{s["files_changed"]} file{"s" if s["files_changed"] != 1 else ""}, '
                 f'<span class="stat-add">+{s["additions"]}</span> '
                 f'<span class="stat-del">−{s["deletions"]}</span>'
             )
-    fold_note = (
-        f'<a href="{url}/commit/{esc(data["sha"])}">fold unchanged lines</a>'
-        if data["full"]
-        else "runs where every parent matches are folded"
+    filelist = "".join(
+        f'<li><span class="status status-{esc(_file_status(f))}">{esc(_file_status(f))}</span>'
+        f'<a href="#f-{i}">{esc(f["path"])}</a></li>'
+        for i, f in enumerate(data["files"])
     )
+    many = len(data["columns"]) > 1
+    fold_note = (
+        f'<a href="{_commit_url(url, data["sha"], parent=data["diff_parent"])}">'
+        "fold unchanged lines</a>"
+        if data["full"]
+        else ("runs where every column matches are folded" if many else "unchanged runs are folded")
+    )
+    # with a single column there is no such thing as merge-authored: every
+    # change is simply this commit's, so the flag has nothing to distinguish
+    authored = (
+        '<span class="flag">⚑</span> rows match no parent at all — the merge author '
+        "wrote them, and "
+        if many
+        else ""
+    )
+    differ = "differ from at least one column" if many else "are what this commit changed"
     legend = (
-        '<p class="dim legend">The result column is the merged content itself: '
-        '<span class="stat-add">green +</span> lines differ from at least one parent, '
+        '<p class="dim legend">The result column is the content itself: '
+        f'<span class="stat-add">green +</span> lines {differ}, '
         '<span class="stat-del">red</span> cells carry a parent\'s own changed or removed text, '
-        'and <span class="flag">⚑</span> rows match no parent at all — the merge author wrote '
-        f"them. {fold_note.capitalize() if not data['full'] else fold_note}.</p>"
+        f"{authored}"
+        f"{fold_note.capitalize() if not data['full'] else fold_note}.</p>"
     )
     sections = (
-        "".join(_merge_file_section(url, data, i, f) for i, f in enumerate(data["files"]))
+        "".join(_file_section(url, data, i, f) for i, f in enumerate(data["files"]))
         or '<p class="empty">No changes to display.</p>'
     )
     body = f"""
-{_crumbs(("repos", "/repos/"), (data["path"], url), (data["short"], None))}
+{repo_header(data["path"], "commits", (data["short"], None))}
 <h1>{esc(data["subject"])}</h1>
 {_commit_meta(url, data, parents_html)}
 {_message_body(data)}
+{_issue_links(url, data)}
 {tabs}
 <div class="changes-head"><h2>Changes</h2>{_wrap_toggle()}</div>
 <p class="dim parentstats">{" · ".join(stat_bits)}</p>
 {legend}
+<ul class="filelist">{filelist}</ul>
 <div class="changes">
 {sections}
 </div>
 """
-    return view(BASE_CSS + DIFF_CSS + TABS_CSS + MERGE_CSS, body)
+    return view(BASE_CSS + DIFF_CSS + TABS_CSS, body)
+
+
+ISSUES_CSS = """
+.state { font-family: var(--mono); font-size: 0.72rem; padding: 0 0.4em; border-radius: 8px; border: 1px solid var(--border); color: var(--fg-dim); white-space: nowrap; }
+.state-added { color: var(--diff-add); border-color: var(--diff-add); }
+.state-deleted { color: var(--diff-del); border-color: var(--diff-del); }
+.state-modified, .state-moved { color: var(--accent); border-color: var(--accent); }
+.qform { display: flex; gap: 0.5rem; margin: 0 0 1rem; }
+.qform input { flex: 1; font-family: var(--mono); font-size: 0.85rem; padding: 0.35rem 0.6rem; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
+.qform button { font-size: 0.85rem; padding: 0.35rem 0.9rem; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.issue-id code { font-size: 0.75rem; }
+"""
+
+
+def _state_badges(url: str, doc: dict, default_branch: str | None) -> str:
+    badges = []
+    for branch, state in sorted(doc["branches"].items()):
+        if branch == default_branch and state["state"] == "same":
+            continue  # presence on the default branch is the unremarkable case
+        badges.append(
+            f'<span class="state state-{esc(state["state"])}">{esc(branch)}: {esc(state["state"])}</span>'
+        )
+    return " ".join(badges)
+
+
+def issues(data: dict) -> str:
+    url = _repo_url(data["path"])
+    q = data.get("query") or ""
+    scope = (
+        f'<input type="hidden" name="branch" value="{esc(data["branch"])}">'
+        if data.get("branch")
+        else ""
+    )
+    rows = []
+    for doc in data["issues"]:
+        if doc["id"]:
+            title = f'<a href="{url}/issues/{esc(doc["id"])}">{esc(doc["title"])}</a>'
+            ident = f'<code>{esc(doc["id"][:8])}</code>'
+        else:
+            title = esc(doc["title"])
+            ident = '<span class="dim">no id</span>'
+        default = doc["branches"].get(data["default_branch"] or "")
+        where = esc(default["path"]) if default else ""
+        rows.append(
+            f'<tr><td>{title}</td><td class="issue-id">{ident}</td>'
+            f'<td class="dim">{where}</td>'
+            f'<td>{_state_badges(url, doc, data["default_branch"])}</td></tr>'
+        )
+    table = (
+        "<table><thead><tr><th>issue</th><th>id</th><th>path</th>"
+        "<th>across branches</th></tr></thead>"
+        f'<tbody>{"".join(rows)}</tbody></table>'
+        if rows
+        else '<p class="empty">No issues found. Issues are markdown files under the issues directory.</p>'
+    )
+    body = f"""
+{repo_header(data["path"], "issues")}
+<h1>{esc(data["path"])} <span class="dim">issues</span></h1>
+<form class="qform" method="get" action="{url}/issues/">
+<input type="text" name="q" value="{esc(q)}" placeholder="JMESPath, e.g. [?frontmatter.status=='open']">{scope}
+<button>filter</button>
+</form>
+{table}
+"""
+    return view(BASE_CSS + ISSUES_CSS, body)
+
+
+def issue(data: dict) -> str:
+    url = _repo_url(data["path"])
+    branch_rows = []
+    for branch, state in sorted(data["branches"].items()):
+        tree_link = f'{url}/tree/{esc(branch)}/{esc(state["path"])}'
+        branch_rows.append(
+            f'<tr><td>{esc(branch)}</td>'
+            f'<td><span class="state state-{esc(state["state"])}">{esc(state["state"])}</span></td>'
+            f'<td><a href="{tree_link}">{esc(state["path"])}</a></td>'
+            f'<td class="dim"><code>{esc(state["oid"][:7])}</code></td></tr>'
+        )
+    transitions = []
+    for t in data["transitions"]:
+        pin = f'{url}/issues/{esc(data["id"] or "")}?at={esc(t["sha"])}'
+        version = (
+            f'<a href="{pin}"><code>{esc(t["new_oid"][:7])}</code></a>'
+            if t["new_oid"] != "0" * 40
+            else '<span class="dim">deleted</span>'
+        )
+        transitions.append(
+            f'<tr><td><a href="{url}/commit/{esc(t["sha"])}"><code>{esc(t["short"])}</code></a></td>'
+            f'<td>{esc(t["subject"])}</td>'
+            f'<td><span class="state state-{esc(t["status"])}">{esc(t["status"])}</span> {esc(t["path"])}</td>'
+            f'<td>{version}</td>'
+            f'<td class="dim">{esc(t["date"][:10])}</td></tr>'
+        )
+    shown = (
+        f'pinned at <code>{esc(data["at"])}</code>'
+        if data.get("at")
+        else f'on <code>{esc(data["shown_branch"] or "")}</code>'
+    )
+    front = (
+        f"<pre>{esc(yaml.safe_dump(data['frontmatter'], sort_keys=False))}</pre>"
+        if data["frontmatter"]
+        else '<p class="empty">No front matter.</p>'
+    )
+    body = f"""
+{repo_header(data["path"], "issues", (data["title"], None))}
+<h1>{esc(data["title"])}</h1>
+<p class="dim">id <code>{esc(data["id"] or "none")}</code> · showing {shown} at <code>{esc(data["shown_path"])}</code></p>
+<h2>Content</h2>
+<pre>{esc(data["content"])}</pre>
+<h2>Front matter</h2>
+{front}
+<h2>Across branches</h2>
+<table><thead><tr><th>branch</th><th>state</th><th>path</th><th>version</th></tr></thead>
+<tbody>{"".join(branch_rows)}</tbody></table>
+<h2>History</h2>
+<table><thead><tr><th>commit</th><th>subject</th><th>change</th><th>version</th><th>date</th></tr></thead>
+<tbody>{"".join(transitions)}</tbody></table>
+"""
+    return view(BASE_CSS + ISSUES_CSS, body)
 
 
 def docs(data: dict) -> str:
     body = """
 <h1>Documentation</h1>
 <h2>Getting started</h2>
-<pre>gitflower init       # initialize workflows in a repository
-gitflower install    # install the pre-push hook
+<pre>gitflower init       # report the rules in effect for a bare repository
+gitflower install    # install the pre-receive hook
 gitflower create myproject.git
 gitflower list
 gitflower web</pre>
 <h2>Branch workflows</h2>
-<p>Branch rules in <code>.gitflower/config.yaml</code> route each pushed
-branch to a workflow — <code>protected</code>, <code>issue-tracker</code> or
-<code>release-manager</code>. Unconfigured branches are rejected: the rule
-list is an allow-list.</p>
+<p>Branch rules in the bare repository's git config, under
+<code>[gitflower "branch.&lt;pattern&gt;"]</code>, route each pushed branch to a
+workflow — <code>protected</code>, <code>issue-tracker</code> or
+<code>release-manager</code>. The most specific matching pattern wins.
+Unconfigured branches are rejected: the rule list is an allow-list.</p>
 <h2>The API is the frontend</h2>
 <p>Every page on this site is also an API endpoint: request it with
 <code>Accept: application/json</code> (or <code>?format=json</code>) for the
@@ -686,3 +791,133 @@ def not_found(data: dict) -> str:
 <p><a href="/repos/">Back to the repositories</a>.</p>
 """
     return view(BASE_CSS, body)
+
+
+MR_CSS = """
+.state { font-size: 0.72rem; padding: 0.1em 0.5em; border-radius: 10px; border: 1px solid; }
+.state-open { color: var(--accent); border-color: var(--accent); }
+.state-merged { color: var(--diff-add-fg); border-color: var(--diff-add-fg); }
+.state-rejected { color: var(--diff-del-fg); border-color: var(--diff-del-fg); }
+.state-closed, .state-superseded { color: var(--fg-dim); border-color: var(--border); }
+.meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1rem; margin: 0 0 1.2rem; font-size: 0.88rem; }
+.meta dt { color: var(--fg-dim); }
+.meta dd { margin: 0; }
+h1 .state { vertical-align: middle; margin-left: 0.5em; }
+"""
+
+
+def _state(state: str) -> str:
+    return f'<span class="state state-{esc(state)}">{esc(state)}</span>'
+
+
+def _mr_filter(url: str, active: str | None) -> str:
+    from gitflower.models import MR_STATES
+
+    tabs = [_tab("All", f"{url}/mrs/", active is None)]
+    tabs += [
+        _tab(s.capitalize(), f"{url}/mrs/?state={s}", active == s) for s in MR_STATES
+    ]
+    return f'<nav class="tabs">{"".join(tabs)}</nav>'
+
+
+def mr_list(data: dict) -> str:
+    url = _repo_url(data["path"])
+    rows = "".join(
+        f'<tr><td><a href="{url}/mrs/{esc(m["oid"])}"><code>{esc(m["short"])}</code></a></td>'
+        f'<td>{_state(m["state"])}</td>'
+        f'<td><a href="{url}/mrs/{esc(m["oid"])}">{esc(m["title"])}</a></td>'
+        + (
+            f'<td><a href="{url}/tree/{esc(m["source"])}/">{esc(m["source"])}</a></td>'
+            if m["source"]
+            else '<td class="dim">—</td>'
+        )
+        + f'<td class="dim">{esc(m["target"])}</td>'
+        + (
+            f'<td><a href="{url}/mrs/{esc(m["stacked_on"])}"><code>{esc(m["stacked_on"])}</code></a></td>'
+            if m["stacked_on"]
+            else "<td></td>"
+        )
+        + f'<td class="dim">{esc(m["date"][:10])}</td></tr>'
+        for m in data["mrs"]
+    )
+    table = (
+        "<table><thead><tr><th>mr</th><th>state</th><th>title</th><th>source</th>"
+        "<th>target</th><th>stacked on</th><th>opened</th></tr></thead>"
+        f'<tbody>{rows}</tbody></table>'
+        if data["mrs"]
+        else '<p class="empty">No merge requests. Open one with an empty commit: '
+        "<code>git commit --allow-empty -m &quot;MR: what this merges&quot;</code>.</p>"
+    )
+    body = f"""
+{repo_header(data["path"], "mrs")}
+<h1>Merge requests</h1>
+{_mr_filter(url, data.get("state"))}
+{table}
+"""
+    return view(BASE_CSS + TABS_CSS + MR_CSS, body)
+
+
+def _mr_resolution(url: str, data: dict) -> str:
+    if data["merge_oid"]:
+        merge = esc(data["merge_oid"])
+        return (
+            f'<h2>Resolution</h2><p>Merged by '
+            f'<a href="{url}/commit/{merge}"><code>{merge[:12]}</code></a>.</p>'
+        )
+    if data["resolution_kind"]:
+        return (
+            f'<h2>Resolution</h2><p>{esc(data["resolution_kind"])}</p>'
+            f'<pre>{esc(data["resolution_message"])}</pre>'
+        )
+    if data["superseded_by"]:
+        later = esc(data["superseded_by"])
+        return (
+            f'<h2>Resolution</h2><p>Superseded by '
+            f'<a href="{url}/mrs/{later}"><code>{later[:12]}</code></a> — '
+            "the branch asked again.</p>"
+        )
+    return '<h2>Resolution</h2><p class="empty">Open — nothing has concluded it yet.</p>'
+
+
+def mr_detail(data: dict) -> str:
+    url = _repo_url(data["path"])
+    source = (
+        f'<a href="{url}/tree/{esc(data["source"])}/">{esc(data["source"])}</a>'
+        if data["source"]
+        else '<span class="dim">no branch carries it any more</span>'
+    )
+    stacked = ""
+    if data["stacked_on"]:
+        base = esc(data["stacked_on"])
+        stacked = (
+            f'<dt>stacked on</dt><dd><a href="{url}/mrs/{base}">'
+            f"<code>{base[:12]}</code></a></dd>"
+        )
+    commit_rows = "".join(
+        f'<tr><td><a href="{url}/commit/{esc(c["sha"])}"><code>{esc(c["short"])}</code></a></td>'
+        f'<td>{esc(c["subject"])}</td><td class="dim">{esc(c["author"])}</td>'
+        f'<td class="dim">{esc(c["date"][:10])}</td></tr>'
+        for c in data["commits"]
+    )
+    commits = (
+        "<table><thead><tr><th>commit</th><th>subject</th><th>author</th><th>date</th>"
+        f'</tr></thead><tbody>{commit_rows}</tbody></table>'
+        if data["commits"]
+        else '<p class="empty">Nothing to merge — the target already has this work.</p>'
+    )
+    body = f"""
+{repo_header(data["path"], "mrs", (data["short"], None))}
+<h1>{esc(data["title"])} {_state(data["state"])}</h1>
+<dl class="meta">
+<dt>request</dt><dd><a href="{url}/commit/{esc(data["oid"])}"><code>{esc(data["oid"])}</code></a></dd>
+<dt>author</dt><dd>{esc(data["author"])} &lt;{esc(data["email"])}&gt; · {esc(data["date"])}</dd>
+<dt>source</dt><dd>{source}</dd>
+<dt>target</dt><dd>{esc(data["target"] or "the mainline")}</dd>
+{stacked}
+</dl>
+{f"<pre>{esc(data['body'])}</pre>" if data["body"] else ""}
+{_mr_resolution(url, data)}
+<h2>The line of work <span class="dim">{len(data["commits"])} commits</span></h2>
+{commits}
+"""
+    return view(BASE_CSS + MR_CSS, body)

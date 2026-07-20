@@ -13,7 +13,7 @@ from pathlib import Path
 import pygit2
 from pygit2.enums import SortMode
 
-from gitflower import mergerows
+from gitflower import diffrows
 from gitflower.slug import is_repository, validate_repo_path, validate_slug, SlugError
 
 # NOTE: libgit2 enforces git's safe.directory ownership check — a repository
@@ -22,7 +22,11 @@ from gitflower.slug import is_repository, validate_repo_path, validate_slug, Slu
 # that owns /var/lib/gitflower, so hosted repos are created via
 # `sudo -u gitflower gitflower create <path>` and ownership matches.
 
-MR_REF_PREFIX = "refs/gitflower/merge-requests/"
+# The merge-request refs, matched literally: the scan touches every hosted
+# repository, so it stays a string comparison and does not open the MR model.
+# gitflower.mr owns the namespace; test_gitread pins the two together.
+MR_REF_PREFIX = "refs/mrs/"
+MR_REQUEST_SUFFIX = "/request"
 
 
 class GitReadError(Exception):
@@ -113,7 +117,11 @@ def _scan_one(root: Path, path: Path) -> RepoInfo:
         info.error = f"not a valid git repository: {exc}"
         return info
     info.branch_count = sum(1 for _ in repo.branches.local)
-    info.mr_count = sum(1 for ref in repo.references if ref.startswith(MR_REF_PREFIX))
+    info.mr_count = sum(
+        1
+        for ref in repo.references
+        if ref.startswith(MR_REF_PREFIX) and ref.endswith(MR_REQUEST_SUFFIX)
+    )
     info.size = _dir_size(path)
     tips = _branch_tips(repo)
     if tips:
@@ -373,63 +381,15 @@ def blob(repo: pygit2.Repository, ref: str, path: str) -> dict:
         raise GitReadError(f"not a file: {path}")
     return {
         "path": path,
+        "oid": str(obj.id),
         "size": obj.size,
         "is_binary": obj.is_binary,
         "data": obj.data,
     }
 
 
-def commit_detail(repo: pygit2.Repository, sha: str, parent: int | None = None) -> dict:
-    """Commit metadata + the diff against one parent (1-based `parent`,
-    default the first). A merge commit has one such diff per parent."""
-    commit = resolve(repo, sha)
-    if parent is not None and not 1 <= parent <= len(commit.parents):
-        raise GitReadError(f"no such parent: {parent}")
-    if commit.parents:
-        diff = repo.diff(commit.parents[(parent or 1) - 1], commit)
-    else:
-        diff = commit.tree.diff_to_tree(swap=True)
-    diff.find_similar()  # detect renames so they show as R, not delete+add
-
-    files = []
-    for patch in diff:
-        delta = patch.delta
-        _context, additions, deletions = patch.line_stats
-        files.append(
-            {
-                "path": delta.new_file.path,
-                "old_path": delta.old_file.path,
-                "status": delta.status_char(),  # A/M/D/R/…
-                "additions": additions,
-                "deletions": deletions,
-                "binary": bool(delta.flags & pygit2.enums.DiffFlag.BINARY),
-                "patch": "" if delta.flags & pygit2.enums.DiffFlag.BINARY else (patch.text or ""),
-            }
-        )
-    stats = diff.stats
-
-    detail = _commit_dict(commit)
-    detail.update(
-        {
-            "message": commit.message,
-            "author_email": commit.author.email,
-            "committer": commit.committer.name,
-            "committer_email": commit.committer.email,
-            "diff_parent": parent or 1,
-            "files": files,
-            "stats": {
-                "files_changed": stats.files_changed,
-                "additions": stats.insertions,
-                "deletions": stats.deletions,
-            },
-            "patch": diff.patch or "",
-        }
-    )
-    return detail
-
-
 def _patch_hunks(patch: pygit2.Patch) -> list[dict]:
-    """A patch's hunks in the shape mergerows.build expects."""
+    """A patch's hunks in the shape diffrows.build expects."""
     hunks = []
     for hunk in patch.hunks:
         lines = [
@@ -446,23 +406,42 @@ def _patch_hunks(patch: pygit2.Patch) -> list[dict]:
     return hunks
 
 
-def merge_detail(repo: pygit2.Repository, sha: str, full: bool = False) -> dict:
-    """A merge commit's side-by-side data: one diff per parent, and per file
-    the aligned multi-column rows (mergerows) against the plain result."""
+def _column_diff(repo: pygit2.Repository, commit: pygit2.Commit, parent) -> pygit2.Diff:
+    """One column's diff: parent → commit, or empty tree → commit for a root
+    commit (`parent` is None). Zero context — diffrows does the alignment."""
+    if parent is None:
+        diff = commit.tree.diff_to_tree(swap=True, context_lines=0)
+    else:
+        diff = repo.diff(parent, commit, context_lines=0)
+    diff.find_similar()  # detect renames so they show as R, not delete+add
+    return diff
+
+
+def diff_detail(
+    repo: pygit2.Repository, sha: str, parent: int | None = None, full: bool = False
+) -> dict:
+    """A commit's side-by-side diff: one column per parent plus the result.
+
+    Every commit renders the same way — the parent count only changes how many
+    columns there are. `parent` (1-based) narrows a merge to a single parent's
+    column; a root commit gets one column standing for the empty tree.
+    """
     commit = resolve(repo, sha)
     parents = list(commit.parents)
-    if len(parents) < 2:
-        raise GitReadError(f"not a merge commit: {sha}")
-    diffs = []
-    for p in parents:
-        diff = repo.diff(p, commit, context_lines=0)
-        diff.find_similar()
-        diffs.append(diff)
+    if parent is not None and not 1 <= parent <= len(parents):
+        raise GitReadError(f"no such parent: {parent}")
+    if parent is not None:
+        selected = [(parent, parents[parent - 1])]
+    elif parents:
+        selected = list(enumerate(parents, 1))
+    else:
+        selected = [(None, None)]  # root commit: the empty tree is the column
+    diffs = [_column_diff(repo, commit, p) for _i, p in selected]
 
-    per_file: dict[str, list] = {}  # result path -> one patch (or None) per parent
+    per_file: dict[str, list] = {}  # result path -> one patch (or None) per column
     for i, diff in enumerate(diffs):
         for patch in diff:
-            entry = per_file.setdefault(patch.delta.new_file.path, [None] * len(parents))
+            entry = per_file.setdefault(patch.delta.new_file.path, [None] * len(diffs))
             entry[i] = patch
 
     files = []
@@ -480,7 +459,7 @@ def merge_detail(repo: pygit2.Repository, sha: str, full: bool = False) -> dict:
                 elif not binary:
                     result_lines = obj.data.decode("utf-8", errors="replace").splitlines()
         except KeyError:
-            pass  # file absent in the result: the merge deleted it — only-rows
+            pass  # file absent in the result: the commit deleted it — only-rows
         statuses, old_paths, counts, hunks = [], [], [], []
         for p in patches:
             if p is None:  # identical to this parent: every cell is `same`
@@ -497,7 +476,7 @@ def merge_detail(repo: pygit2.Repository, sha: str, full: bool = False) -> dict:
         laid_out = (
             {"rows": [], "truncated": False}
             if binary
-            else mergerows.build(result_lines, hunks, full=full)
+            else diffrows.build(result_lines, hunks, full=full)
         )
         files.append(
             {
@@ -511,6 +490,19 @@ def merge_detail(repo: pygit2.Repository, sha: str, full: bool = False) -> dict:
             }
         )
 
+    columns = [
+        {
+            "index": i,
+            "sha": str(p.id) if p is not None else "",
+            "short": str(p.short_id) if p is not None else "the empty tree",
+            "stats": {
+                "files_changed": d.stats.files_changed,
+                "additions": d.stats.insertions,
+                "deletions": d.stats.deletions,
+            },
+        }
+        for (i, p), d in zip(selected, diffs)
+    ]
     detail = _commit_dict(commit)
     detail.update(
         {
@@ -518,15 +510,8 @@ def merge_detail(repo: pygit2.Repository, sha: str, full: bool = False) -> dict:
             "author_email": commit.author.email,
             "committer": commit.committer.name,
             "committer_email": commit.committer.email,
-            "parent_commits": [_commit_dict(p) for p in parents],
-            "parent_stats": [
-                {
-                    "files_changed": d.stats.files_changed,
-                    "additions": d.stats.insertions,
-                    "deletions": d.stats.deletions,
-                }
-                for d in diffs
-            ],
+            "columns": columns,
+            "diff_parent": parent,
             "files": files,
             "full": full,
         }
