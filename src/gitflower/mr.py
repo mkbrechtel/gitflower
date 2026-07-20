@@ -464,11 +464,21 @@ def line_of_work(
     request = repo.get(request_oid)
     if request is None or not isinstance(request, pygit2.Commit):
         return []
-    trunk = mainline or default_branch(repo)
-    trunk_tip = _tip(repo, trunk) if trunk else None
+    # Once a request has merged, the mainline contains it, and asking what it
+    # adds to the mainline answers nothing. What it brought in is what the
+    # target did not have when the merge was made — its first parent.
+    base = None
+    merged = _ref_target(repo, merge_ref(str(request.id)))
+    if merged:
+        merge = repo.get(merged)
+        if merge is not None and isinstance(merge, pygit2.Commit) and merge.parents:
+            base = merge.parents[0]
+    if base is None:
+        trunk = mainline or default_branch(repo)
+        base = _tip(repo, trunk) if trunk else None
     walker = repo.walk(request.id)
-    if trunk_tip is not None:
-        walker.hide(trunk_tip.id)
+    if base is not None:
+        walker.hide(base.id)
     out = []
     for commit in walker:
         out.append(_commit_dict(commit))

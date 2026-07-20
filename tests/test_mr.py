@@ -358,3 +358,18 @@ def test_signing_says_what_is_missing(repo, monkeypatch):
     git(work, "checkout", "-q", "-b", "feature/nameless", "main")
     with pytest.raises(mr.MRError, match="no git identity"):
         mr.create_request(r, "feature/nameless", "who am I")
+
+
+def test_a_merged_request_still_shows_what_it_brought_in(repo):
+    """Against the mainline a merged request adds nothing, because the
+    mainline already has it. The line of work is what the target lacked when
+    the merge was made."""
+    r, work, request = repo
+    r.references.create(mr.request_ref(request), pygit2.Oid(hex=request))
+    before = str(r.references["refs/heads/main"].target)
+    git(work, "merge", "--no-ff", "feature/thing", "-m", "Merge feature/thing")
+    after = str(r.references["refs/heads/main"].target)
+    mr.record_push(r, "main", before, after, mainline="main")
+
+    subjects = [c["subject"] for c in mr.line_of_work(r, request, mainline="main")]
+    assert subjects == ["MR: add the thing", "the work"]
