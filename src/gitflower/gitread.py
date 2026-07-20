@@ -22,7 +22,11 @@ from gitflower.slug import is_repository, validate_repo_path, validate_slug, Slu
 # that owns /var/lib/gitflower, so hosted repos are created via
 # `sudo -u gitflower gitflower create <path>` and ownership matches.
 
-MR_REF_PREFIX = "refs/gitflower/merge-requests/"
+# The merge-request refs, matched literally: the scan touches every hosted
+# repository, so it stays a string comparison and does not open the MR model.
+# gitflower.mr owns the namespace; test_gitread pins the two together.
+MR_REF_PREFIX = "refs/mrs/"
+MR_REQUEST_SUFFIX = "/request"
 
 
 class GitReadError(Exception):
@@ -113,7 +117,11 @@ def _scan_one(root: Path, path: Path) -> RepoInfo:
         info.error = f"not a valid git repository: {exc}"
         return info
     info.branch_count = sum(1 for _ in repo.branches.local)
-    info.mr_count = sum(1 for ref in repo.references if ref.startswith(MR_REF_PREFIX))
+    info.mr_count = sum(
+        1
+        for ref in repo.references
+        if ref.startswith(MR_REF_PREFIX) and ref.endswith(MR_REQUEST_SUFFIX)
+    )
     info.size = _dir_size(path)
     tips = _branch_tips(repo)
     if tips:
