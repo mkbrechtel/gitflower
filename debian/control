@@ -13,6 +13,7 @@ Build-Depends: debhelper-compat (= 13),
                python3-pygit2 <!nocheck>,
                python3-yaml <!nocheck>,
                python3-textual <!nocheck>,
+               python3-jmespath <!nocheck>,
                python3-httpx <!nocheck>,
                git <!nocheck>
 Standards-Version: 4.7.2

@@ -352,6 +352,150 @@ def list_repos(ctx: click.Context, fmt: str, warnings: bool) -> None:
         click.echo("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip())
 
 
+def _hosted_repo(ctx: click.Context, repo_path: str):
+    from gitflower import gitread
+    from gitflower.slug import SlugError
+
+    global_cfg = _global_config(ctx)
+    if not repo_path.endswith(".git"):
+        repo_path += ".git"
+    try:
+        return gitread.open_repo(global_cfg.repos.directory, repo_path)
+    except (SlugError, gitread.GitReadError) as exc:
+        raise click.ClickException(str(exc))
+
+
+@main.group("issues")
+def issues_group() -> None:
+    """Inspect in-tree issues across branches."""
+
+
+@issues_group.command("list")
+@click.argument("repo")
+@click.option("--q", "query", default=None, help="JMESPath filter over the issue documents.")
+@click.option("--branch", default=None, help="Only issues present on this branch.")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["table", "json", "yaml"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_context
+def issues_list(
+    ctx: click.Context, repo: str, query: str | None, branch: str | None, fmt: str
+) -> None:
+    """List a repository's issues across its branches."""
+    from gitflower import issues
+
+    data = issues.documents(_hosted_repo(ctx, repo))
+    docs = data["issues"]
+    if branch:
+        docs = [d for d in docs if branch in d["branches"]]
+    if query:
+        try:
+            docs = issues.filter_documents(docs, query)
+        except issues.QueryError as exc:
+            raise click.ClickException(str(exc))
+    if fmt == "json":
+        click.echo(json.dumps(docs, indent=2))
+        return
+    if fmt == "yaml":
+        click.echo(yaml.safe_dump(docs, sort_keys=False), nl=False)
+        return
+    header = ("TITLE", "ID", "BRANCHES")
+    table = [header, tuple("-" * len(h) for h in header)]
+    for doc in docs:
+        states = " ".join(
+            f"{name}:{state['state']}" for name, state in sorted(doc["branches"].items())
+        )
+        table.append((doc["title"], doc["id"] or "(no id)", states))
+    if not docs:
+        table.append(("No issues found", "", ""))
+    widths = [max(len(row[i]) for row in table) for i in range(len(header))]
+    for row in table:
+        click.echo("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip())
+
+
+@issues_group.command("show")
+@click.argument("repo")
+@click.argument("uuid")
+@click.option("--at", default=None, help="Show the version at this commit.")
+@click.pass_context
+def issues_show(ctx: click.Context, repo: str, uuid: str, at: str | None) -> None:
+    """Show one issue: cross-branch state, history, and content."""
+    from gitflower import issues
+
+    detail = issues.issue_detail(_hosted_repo(ctx, repo), uuid, at=at)
+    if detail is None:
+        raise click.ClickException(f"no issue with id {uuid}" + (f" at {at}" if at else ""))
+    meta = {
+        "id": detail["id"],
+        "title": detail["title"],
+        "frontmatter": detail["frontmatter"],
+        "branches": detail["branches"],
+        "history": [
+            {"commit": t["short"], "subject": t["subject"], "path": t["path"], "status": t["status"]}
+            for t in detail["transitions"]
+        ],
+    }
+    click.echo(yaml.safe_dump(meta, sort_keys=False), nl=False)
+    click.echo("---")
+    click.echo(detail["content"], nl=False)
+
+
+@issues_group.command("fsck")
+@click.argument("repo")
+@click.pass_context
+def issues_fsck(ctx: click.Context, repo: str) -> None:
+    """Check issue integrity: duplicate ids, files without an id."""
+    from gitflower import issues
+
+    findings = issues.fsck(_hosted_repo(ctx, repo))
+    for f in findings:
+        what = f"duplicate id '{f['id']}'" if f["kind"] == "duplicate-id" else "missing id"
+        click.echo(f"{f['branch']}: {what} — {f['path']}")
+    if any(f["kind"] == "duplicate-id" for f in findings):
+        sys.exit(1)
+    if not findings:
+        click.echo("OK: no findings.")
+
+
+@main.command()
+@click.pass_context
+def maintenance(ctx: click.Context) -> None:
+    """Refresh the commit-graph (with changed-path Bloom filters) of every
+    hosted repository — keeps issue and history walks fast."""
+    from gitflower import gitread
+
+    global_cfg = _global_config(ctx)
+    result = gitread.scan_repos(global_cfg.repos.directory, global_cfg.repos.scan_depth)
+    failed = False
+    for repo in result.repos:
+        if not repo.is_valid:
+            continue
+        run = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(Path(global_cfg.repos.directory) / repo.path),
+                "commit-graph",
+                "write",
+                "--reachable",
+                "--changed-paths",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if run.returncode == 0:
+            click.echo(f"{repo.path}: commit-graph written")
+        else:
+            failed = True
+            click.echo(f"{repo.path}: ERROR {run.stderr.strip()}", err=True)
+    if failed:
+        sys.exit(1)
+
+
 @main.command()
 @click.option("--addr", default=None, help="Override the configured web address.")
 @click.pass_context

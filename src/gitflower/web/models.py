@@ -124,6 +124,79 @@ class TreeView:
 
 
 @dataclass
+class IssueLink:
+    """A cross-link to an issue from a commit or blob page."""
+
+    key: str
+    id: str | None
+    title: str
+    path: str = ""
+
+
+@dataclass
+class IssueBranchState:
+    """One branch's version of an issue, classified against the merge-base
+    with the default branch."""
+
+    path: str
+    oid: str
+    state: str  # same | modified | moved | added | deleted
+
+
+@dataclass
+class IssueDoc:
+    """One issue across branches — also the JMESPath query document."""
+
+    key: str
+    id: str | None
+    title: str
+    frontmatter: dict
+    branches: dict[str, IssueBranchState]
+
+
+@dataclass
+class IssueList:
+    path: str
+    default_branch: str | None
+    branches: list[str]
+    issues: list[IssueDoc]
+    query: str | None = None
+    branch: str | None = None
+
+
+@dataclass
+class IssueTransition:
+    """One commit's change to an issue file (old/new blob OID)."""
+
+    sha: str
+    short: str
+    parents: list[str]
+    author: str
+    date: str
+    subject: str
+    path: str
+    old_oid: str
+    new_oid: str
+    status: str
+
+
+@dataclass
+class IssueDetail:
+    path: str
+    key: str
+    id: str | None
+    title: str
+    frontmatter: dict
+    branches: dict[str, IssueBranchState]
+    transitions: list[IssueTransition]
+    content: str
+    shown_oid: str
+    shown_path: str
+    shown_branch: str | None
+    at: str | None = None
+
+
+@dataclass
 class BlobView:
     path: str
     ref: str
@@ -131,6 +204,7 @@ class BlobView:
     size: int
     is_binary: bool
     content: str
+    issue: IssueLink | None = None
 
 
 @dataclass
@@ -218,6 +292,7 @@ class CommitDiff:
     files: list[DiffFile]
     diff_parent: int | None  # the single parent selected, or None for all
     full: bool
+    issues: list[IssueLink] = field(default_factory=list)
 
 
 @dataclass
