@@ -7,7 +7,7 @@
 
 A single-file format for one code review, optionally scoped to one git object. Loosely based on Markdown, with a fixed chapter structure: a single `# Review <Type> <short-sha> $ <git command>` heading binding the file to the reviewed object, H2 = sub-section (reviewer subsections, per-file content), list items = reviewer events. Patch / file content is `> `-quoted verbatim from git so the review reads like an annotated diff.
 
-This file specifies the on-disk format. The reference reader/writer is gitflower; its commands, TUI, and notes-ref integration are documented separately in [`./gitflower-review.md`](./gitflower-review.md).
+This file specifies the on-disk format. The reference reader/writer is gitflower; the push gate over submitted reviews is specified in [`./review-gate.md`](./review-gate.md), and the interactive surfaces (CLI, TUI, web) are tracked in [`../../issues/review-ui.md`](../../issues/review-ui.md).
 
 ## Goal
 
@@ -567,7 +567,7 @@ Together these properties let concurrent submissions merge with git's **ordinary
 What stays non-deterministic and may need merge attention:
 
 - **Reviewer-added subsections** — extra `## Note` / `## Remark` / `## Issue` items in the reviewer-authored content. Merge = union by heading; duplicates collapse.
-- **Issue collisions** — two reviewers raising `## Issue X` with the same title. Kept as duplicates (the TUI surfaces them — see *gitflower-review.md*) unless a tool merges titles by similarity.
+- **Issue collisions** — two reviewers raising `## Issue X` with the same title. Kept as duplicates (UIs surface them — see the review-ui issue) unless a tool merges titles by similarity.
 - **Verdicts per (Name, email)** — at most one of each kind, "latest replaces" is the collision rule; renormalization dedups re-submissions naturally when timestamps are present, otherwise the latest submission wins.
 
 # Considerations

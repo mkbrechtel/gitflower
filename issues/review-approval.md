@@ -55,13 +55,13 @@ The tool spec's `review merge` subcommand and its `[Review]`-merge base-ref dete
 ## Tasks
 
 - [x] Q1: no diff-range section — open reviews serve pre-merge conversation and the continuous scaffold
-- [ ] Spec the `reviews/…` submission-branch flow and the all-findings-resolved gate for the integration→`main` merge
+- [ ] Spec the `reviews/…` submission-branch flow (the gate side is `docs/spec/review-gate.md`)
 - [x] Rewrite the *Storage* and *Multi-reviewer merge* sections of `dot-review-format.md` tree-first, demoting notes to draft state
 - [ ] Spec the append-only merge semantics in `dot-review-format.md` (`merge=union` baseline, renormalizing renderers, the adjacent-subsection hazard)
-- [ ] Spec the `review-gate` workflow in the hook engine, including approval-staleness recognition shared with the MR design
-- [ ] Spec the `CODEOWNERS` file (email owners, pattern syntax, read from the protected branch's tip) and its evaluation in `review-gate`
-- [ ] Write the fresh spec superseding `gitflower-review.md`: click CLI + `$EDITOR` flow, scoped-merge and open-review scaffolds (Q5 decided: supersede)
-- [ ] `.review` rendering in the web UI (read-only; joins the MR detail view, MR design O7)
+- [x] Spec the `review-gate` workflow — `docs/spec/review-gate.md` (two conditions, SHA-pinned staleness)
+- [x] Spec the `CODEOWNERS` file — in `docs/spec/review-gate.md` (email owners, last-match-wins, unowned paths fail closed)
+- [x] Supersede `gitflower-review.md`: split into `docs/spec/review-gate.md` (the gate) and `issues/review-ui.md` (web + TUI, one behavior)
+- [ ] `.review` rendering in the web UI — tracked in `issues/review-ui.md`
 - [x] Editorial pass over `dot-review-format.md` (typos: "gitfßlower", "Loosley", "determin", "hierachy")
 - [ ] Redirect `work/feature/review-cli` tree-first: notes persistence demotes to draft, `gitflower review submit` added
 - [ ] File the cute-devops pattern edits (verdict location in `merge-reviews.md`, storage in `continuous-review.md`, review-branch prefix)
