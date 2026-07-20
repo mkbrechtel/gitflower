@@ -1,9 +1,11 @@
-"""Typed response models — the JSON contract of every browse endpoint.
+"""Typed view models — the contract every surface reads.
 
 Plain dataclasses (FastAPI wraps them in pydantic for the OpenAPI schema, so
-the 5-dependency rule holds). Each route declares its model as
+the 5-dependency rule holds). A web route declares its model as
 `response_model`; the negotiated HTML page and fragment render from the same
-`asdict()` data, so the three representations cannot drift apart.
+`asdict()` data, so the three representations cannot drift apart. The models
+live here rather than under web/ because the CLI and TUI read the same
+contract — one typed shape, rendered as JSON, HTML, a table, or a DataTable.
 """
 
 from dataclasses import dataclass, field
